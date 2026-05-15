@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { isDbAvailable, db } from '@/lib/db';
 import { validateGroqApiKey } from '@/lib/groq';
+import {
+  memCreateSession,
+  memFindSessionByCallsign,
+  memFindSession,
+  memUpdateSession,
+  memGetOperationsBySession,
+} from '@/lib/memory-store';
 
 // POST: Create new player session
 export async function POST(request: NextRequest) {
@@ -14,8 +21,32 @@ export async function POST(request: NextRequest) {
 
     const normalized = callsign.trim().toLowerCase().replace(/\s+/g, '-');
 
-    // Check for existing session with this callsign
-    const existing = await db.playerSession.findUnique({ where: { callsign: normalized } });
+    if (isDbAvailable) {
+      // Prisma path (local dev)
+      const existing = await db.playerSession.findUnique({ where: { callsign: normalized } });
+      if (existing) {
+        return NextResponse.json({
+          id: existing.id,
+          callsign: existing.callsign,
+          hasGroqKey: !!existing.groqKey,
+          createdAt: existing.createdAt,
+        });
+      }
+
+      const session = await db.playerSession.create({
+        data: { callsign: normalized },
+      });
+
+      return NextResponse.json({
+        id: session.id,
+        callsign: session.callsign,
+        hasGroqKey: false,
+        createdAt: session.createdAt,
+      });
+    }
+
+    // In-memory fallback (Vercel serverless)
+    const existing = memFindSessionByCallsign(normalized);
     if (existing) {
       return NextResponse.json({
         id: existing.id,
@@ -25,10 +56,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const session = await db.playerSession.create({
-      data: { callsign: normalized },
-    });
-
+    const session = memCreateSession(normalized);
     return NextResponse.json({
       id: session.id,
       callsign: session.callsign,
@@ -51,17 +79,28 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'sessionId and groqKey required' }, { status: 400 });
     }
 
-    // Validate Groq API key
     const isValid = await validateGroqApiKey(groqKey);
     if (!isValid) {
       return NextResponse.json({ error: 'Invalid Groq API key', valid: false }, { status: 400 });
     }
 
-    const session = await db.playerSession.update({
-      where: { id: sessionId },
-      data: { groqKey },
-    });
+    if (isDbAvailable) {
+      const session = await db.playerSession.update({
+        where: { id: sessionId },
+        data: { groqKey },
+      });
+      return NextResponse.json({
+        id: session.id,
+        callsign: session.callsign,
+        hasGroqKey: true,
+      });
+    }
 
+    // In-memory fallback
+    const session = memUpdateSession(sessionId, { groqKey });
+    if (!session) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
     return NextResponse.json({
       id: session.id,
       callsign: session.callsign,
@@ -83,24 +122,43 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'sessionId required' }, { status: 400 });
     }
 
-    const session = await db.playerSession.findUnique({
-      where: { id: sessionId },
-      include: {
-        operations: {
-          orderBy: { createdAt: 'desc' },
-        },
-      },
-    });
+    if (isDbAvailable) {
+      const session = await db.playerSession.findUnique({
+        where: { id: sessionId },
+        include: { operations: { orderBy: { createdAt: 'desc' } } },
+      });
+      if (!session) {
+        return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+      }
+      return NextResponse.json({
+        id: session.id,
+        callsign: session.callsign,
+        hasGroqKey: !!session.groqKey,
+        operations: session.operations.map(op => ({
+          id: op.id,
+          opCode: op.opCode,
+          status: op.status,
+          hardeningLevel: op.hardeningLevel,
+          apiCallCount: op.apiCallCount,
+          apiCallBudget: op.apiCallBudget,
+          startedAt: op.startedAt,
+          solvedAt: op.solvedAt,
+        })),
+        createdAt: session.createdAt,
+      });
+    }
 
+    // In-memory fallback
+    const session = memFindSession(sessionId);
     if (!session) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
-
+    const ops = memGetOperationsBySession(sessionId);
     return NextResponse.json({
       id: session.id,
       callsign: session.callsign,
       hasGroqKey: !!session.groqKey,
-      operations: session.operations.map(op => ({
+      operations: ops.map(op => ({
         id: op.id,
         opCode: op.opCode,
         status: op.status,
