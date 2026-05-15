@@ -65,6 +65,42 @@ export interface MutationEntry {
   createdAt: string;
 }
 
+export interface SchemaPoisonChatMessage {
+  id: string;
+  question: string;
+  answer: string;
+  retrievedDocs: Array<{ id: string; title: string; isPoisoned: boolean }>;
+  containsPoisonedClaim: boolean;
+  timestamp: number;
+}
+
+export interface SchemaPoisonState {
+  isQuerying: boolean;
+  chatHistory: SchemaPoisonChatMessage[];
+  injectedDocTitle: string | null;
+  injectedDocId: string | null;
+  targetClaim: string | null;
+  targetDescription: string | null;
+  kbTitles: string[];
+  queryCount: number;
+  queryBudget: number;
+  phase: 'inject' | 'query' | 'submit';
+  score: {
+    totalScore: number;
+    poisonSuccessCount: number;
+    totalQueries: number;
+    injectedDocRelevance: number;
+    feedback: string;
+    breakdown: {
+      queriesUsed: number;
+      queryBudget: number;
+      poisonedRetrievals: number;
+      totalRetrievals: number;
+      retrievalRate: number;
+    };
+  } | null;
+}
+
 // ─── Store ───────────────────────────────────────────────
 
 interface SessionStore {
@@ -83,6 +119,9 @@ interface SessionStore {
 
   // OP-ORACLE specific
   oracle: OracleState;
+
+  // OP-SCHEMAPOISON specific
+  schemaPoison: SchemaPoisonState;
 
   // Mutations (accumulated across operations)
   mutations: MutationEntry[];
@@ -103,11 +142,21 @@ interface SessionStore {
   setOracleOperationId: (id: string) => void;
   completeSetup: () => void;
   addMutation: (mutation: MutationEntry) => void;
+  setSchemaPoisonQuerying: (querying: boolean) => void;
+  addSchemaPoisonMessage: (message: SchemaPoisonChatMessage) => void;
+  setSchemaPoisonInjected: (title: string, docId: string) => void;
+  setSchemaPoisonTarget: (claim: string, description: string) => void;
+  setSchemaPoisonKbTitles: (titles: string[]) => void;
+  setSchemaPoisonQueryBudget: (budget: number) => void;
+  incrementSchemaPoisonQueryCount: () => void;
+  setSchemaPoisonPhase: (phase: 'inject' | 'query' | 'submit') => void;
+  setSchemaPoisonScore: (score: SchemaPoisonState['score']) => void;
+  resetSchemaPoison: () => void;
 }
 
 const defaultOperations: Record<OpCode, OperationState> = {
   'OP-ORACLE': { opCode: 'OP-ORACLE', status: 'available', hardeningLevel: 1, apiCallsUsed: 0, apiCallBudget: 10000, operationId: null, startedAt: null, solvedAt: null },
-  'OP-SCHEMAPOISON': { opCode: 'OP-SCHEMAPOISON', status: 'locked', hardeningLevel: 1, apiCallsUsed: 0, apiCallBudget: 0, operationId: null, startedAt: null, solvedAt: null },
+  'OP-SCHEMAPOISON': { opCode: 'OP-SCHEMAPOISON', status: 'available', hardeningLevel: 1, apiCallsUsed: 0, apiCallBudget: 30, operationId: null, startedAt: null, solvedAt: null },
   'OP-EIGENBLIND': { opCode: 'OP-EIGENBLIND', status: 'locked', hardeningLevel: 1, apiCallsUsed: 0, apiCallBudget: 0, operationId: null, startedAt: null, solvedAt: null },
   'OP-OUROBOROS': { opCode: 'OP-OUROBOROS', status: 'locked', hardeningLevel: 1, apiCallsUsed: 0, apiCallBudget: 0, operationId: null, startedAt: null, solvedAt: null },
   'OP-LONGCON': { opCode: 'OP-LONGCON', status: 'locked', hardeningLevel: 1, apiCallsUsed: 0, apiCallBudget: 0, operationId: null, startedAt: null, solvedAt: null },
@@ -122,6 +171,20 @@ const defaultOracle: OracleState = {
   notes: '',
 };
 
+const defaultSchemaPoison: SchemaPoisonState = {
+  isQuerying: false,
+  chatHistory: [],
+  injectedDocTitle: null,
+  injectedDocId: null,
+  targetClaim: null,
+  targetDescription: null,
+  kbTitles: [],
+  queryCount: 0,
+  queryBudget: 30,
+  phase: 'inject',
+  score: null,
+};
+
 export const useSessionStore = create<SessionStore>()(
   persist(
     (set) => ({
@@ -133,6 +196,7 @@ export const useSessionStore = create<SessionStore>()(
       activeTab: 'dashboard',
       operations: defaultOperations,
       oracle: defaultOracle,
+      schemaPoison: defaultSchemaPoison,
       mutations: [],
 
       setSession: (sessionId, callsign) => set({ sessionId, callsign }),
@@ -210,6 +274,71 @@ export const useSessionStore = create<SessionStore>()(
       addMutation: (mutation) => set((state) => ({
         mutations: [...state.mutations, mutation],
       })),
+
+      setSchemaPoisonQuerying: (querying) => set((state) => ({
+        schemaPoison: { ...state.schemaPoison, isQuerying: querying },
+      })),
+
+      addSchemaPoisonMessage: (message) => set((state) => ({
+        schemaPoison: {
+          ...state.schemaPoison,
+          chatHistory: [...state.schemaPoison.chatHistory, message],
+        },
+      })),
+
+      setSchemaPoisonInjected: (title, docId) => set((state) => ({
+        schemaPoison: {
+          ...state.schemaPoison,
+          injectedDocTitle: title,
+          injectedDocId: docId,
+        },
+      })),
+
+      setSchemaPoisonTarget: (claim, description) => set((state) => ({
+        schemaPoison: {
+          ...state.schemaPoison,
+          targetClaim: claim,
+          targetDescription: description,
+        },
+      })),
+
+      setSchemaPoisonKbTitles: (titles) => set((state) => ({
+        schemaPoison: { ...state.schemaPoison, kbTitles: titles },
+      })),
+
+      setSchemaPoisonQueryBudget: (budget) => set((state) => ({
+        schemaPoison: { ...state.schemaPoison, queryBudget: budget },
+      })),
+
+      incrementSchemaPoisonQueryCount: () => set((state) => ({
+        schemaPoison: {
+          ...state.schemaPoison,
+          queryCount: state.schemaPoison.queryCount + 1,
+        },
+      })),
+
+      setSchemaPoisonPhase: (phase) => set((state) => ({
+        schemaPoison: { ...state.schemaPoison, phase },
+      })),
+
+      setSchemaPoisonScore: (score) => set((state) => ({
+        schemaPoison: { ...state.schemaPoison, score },
+      })),
+
+      resetSchemaPoison: () => set((state) => ({
+        operations: {
+          ...state.operations,
+          'OP-SCHEMAPOISON': {
+            ...state.operations['OP-SCHEMAPOISON'],
+            status: 'available',
+            apiCallsUsed: 0,
+            operationId: null,
+            startedAt: null,
+            solvedAt: null,
+          },
+        },
+        schemaPoison: defaultSchemaPoison,
+      })),
     }),
     {
       name: 'dvai-session',
@@ -226,6 +355,18 @@ export const useSessionStore = create<SessionStore>()(
           guessHistory: state.oracle.guessHistory,
           score: state.oracle.score,
           notes: state.oracle.notes,
+        },
+        schemaPoison: {
+          chatHistory: state.schemaPoison.chatHistory.slice(-50),
+          injectedDocTitle: state.schemaPoison.injectedDocTitle,
+          injectedDocId: state.schemaPoison.injectedDocId,
+          targetClaim: state.schemaPoison.targetClaim,
+          targetDescription: state.schemaPoison.targetDescription,
+          kbTitles: state.schemaPoison.kbTitles,
+          queryCount: state.schemaPoison.queryCount,
+          queryBudget: state.schemaPoison.queryBudget,
+          phase: state.schemaPoison.phase,
+          score: state.schemaPoison.score,
         },
         mutations: state.mutations,
       }),

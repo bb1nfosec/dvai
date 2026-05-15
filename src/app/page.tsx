@@ -7,6 +7,7 @@ import { Header } from '@/components/layout/header';
 import { OpsGrid } from '@/components/dashboard/ops-grid';
 import { MetricsPanel } from '@/components/dashboard/metrics-panel';
 import { OracleView } from '@/components/oracle/oracle-view';
+import { SchemaPoisonView } from '@/components/schemapoison/schemapoison-view';
 import { TTPRegistry } from '@/components/ttps/ttp-registry';
 import { Shield, Lock, Database, Crosshair, RefreshCw, MessageSquare, ShieldAlert } from 'lucide-react';
 
@@ -90,7 +91,7 @@ export default function Home() {
       case 'ttps':
         return <TTPRegistry />;
       case 'schemapoison':
-        return <LockedOpView name="OP-SCHEMAPOISON" codename="JSON-LD Context Authority Poisoning" />;
+        return <SchemaPoisonView />;
       case 'eigenblind':
         return <LockedOpView name="OP-EIGENBLIND" codename="Adversarial Suffix Optimization" />;
       case 'ouroboros':
