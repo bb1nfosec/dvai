@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { buildOracleSystemPrompt } from '@/lib/oracle-engine';
+import { buildOracleSystemPrompt, isBlindMode } from '@/lib/oracle-engine';
 import { encrypt, decrypt } from '@/lib/crypto';
+import { checkRateLimit, recordQuery, validateOrigin } from '@/lib/anti-cheat';
 
 const COOKIE_NAME = 'dvai_oracle';
 const COOKIE_MAX_AGE = 60 * 60 * 24;
@@ -13,6 +14,7 @@ interface OracleCookieState {
   hardeningLevel: number;
   apiCallCount: number;
   apiCallBudget: number;
+  guessHistory: string[];
   startedAt: string;
 }
 
@@ -63,12 +65,13 @@ async function callGroq(
   apiKey: string,
   messages: GroqMessage[],
   withLogprobs: boolean,
+  maxTokens?: number,
 ): Promise<GroqChatResponse> {
   const body: Record<string, unknown> = {
     model: DEFAULT_MODEL,
     messages,
     temperature: 0.7,
-    max_tokens: 1024,
+    max_tokens: maxTokens || 1024,
   };
 
   if (withLogprobs) {
@@ -94,8 +97,14 @@ async function callGroq(
 }
 
 // ─── POST: Query the oracle ───────────────────────────────────
+// ANTI-CHEAT: L6 BLIND MODE strips text, max_tokens:1, logprobs only
 export async function POST(request: NextRequest) {
   try {
+    // Origin validation
+    if (!validateOrigin(request)) {
+      return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 });
+    }
+
     const body = await request.json();
     const { groqKey, message } = body;
 
@@ -125,6 +134,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ANTI-CHEAT: Rate limit queries
+    const sessionId = request.cookies.get('dvai_session')?.value || 'anonymous';
+    const rateCheck = checkRateLimit('oracle-query', sessionId);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { error: 'Query rate limit exceeded. Slow down.', retryAfter: Math.ceil((rateCheck.resetAt - Date.now()) / 1000) },
+        { status: 429 },
+      );
+    }
+
+    // ANTI-CHEAT: Record query for behavioral analysis
+    recordQuery(sessionId);
+
     // Build system prompt with the decrypted secret
     const systemPrompt = buildOracleSystemPrompt(state.secret, state.hardeningLevel);
     const groqMessages: GroqMessage[] = [
@@ -132,16 +154,17 @@ export async function POST(request: NextRequest) {
       { role: 'user', content: message },
     ];
 
-    // Try with logprobs first; fall back to without logprobs if model rejects them
+    const blindMode = isBlindMode(state.hardeningLevel);
+
+    // L6 BLIND MODE: max_tokens:1, logprobs only, strip text
     let response: GroqChatResponse;
     let logprobsFallback = false;
     try {
-      response = await callGroq(groqKey, groqMessages, true);
+      response = await callGroq(groqKey, groqMessages, true, blindMode ? 1 : 1024);
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : '';
       if (errMsg.includes('logprobs')) {
-        // Model doesn't support logprobs — retry without
-        response = await callGroq(groqKey, groqMessages, false);
+        response = await callGroq(groqKey, groqMessages, false, blindMode ? 1 : 1024);
         logprobsFallback = true;
       } else {
         throw err;
@@ -156,13 +179,15 @@ export async function POST(request: NextRequest) {
 
     const jsonResponse = NextResponse.json({
       id: response.id,
-      content: choice?.message?.content || '',
+      // ANTI-CHEAT: In blind mode, strip text content entirely
+      content: blindMode ? '[BLIND MODE — text response stripped]' : (choice?.message?.content || ''),
       logprobs,
       model: response.model,
       usage: response.usage,
       apiCallCount: newCallCount,
       apiCallBudget: state.apiCallBudget,
       remainingBudget: state.apiCallBudget - newCallCount,
+      blindMode,
       ...(logprobsFallback ? { _logprobsNote: 'Model does not support logprobs; response returned without logprob data' } : {}),
     });
 
@@ -170,6 +195,7 @@ export async function POST(request: NextRequest) {
     return jsonResponse;
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Failed to query oracle';
+    // ANTI-CHEAT: Don't leak API key details in error messages
     console.error('Oracle query error:', msg);
     return NextResponse.json({ error: msg }, { status: 500 });
   }

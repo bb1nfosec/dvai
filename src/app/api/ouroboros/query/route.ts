@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { parseStageResult, type OuroborosState, type StageResult } from '@/lib/ouroboros-engine';
+import {
+  buildSummarizerPrompt,
+  buildTranslatorPrompt,
+  buildAnalyzerPrompt,
+  checkFlagInAnalyzerOutput,
+  type OuroborosState,
+  type TargetLanguage,
+} from '@/lib/ouroboros-engine';
 import { encrypt, decrypt } from '@/lib/crypto';
+import { checkRateLimit, validateOrigin, recordQuery } from '@/lib/anti-cheat';
 
 const COOKIE_NAME = 'dvai_ouroboros';
 const COOKIE_MAX_AGE = 60 * 60 * 24;
@@ -34,67 +42,50 @@ interface GroqMessage {
   content: string;
 }
 
-async function callGroq(apiKey: string, messages: GroqMessage[]): Promise<{ content: string }> {
-  const body: Record<string, unknown> = {
-    model: DEFAULT_MODEL,
-    messages,
-    temperature: 0.6,
-    max_tokens: 768,
-    logprobs: true,
-    top_logprobs: 10,
-  };
-
-  let res = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
+async function callGroq(apiKey: string, messages: GroqMessage[], temperature = 0.7, maxTokens = 1024): Promise<string> {
+  const res = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      model: DEFAULT_MODEL,
+      messages,
+      temperature,
+      max_tokens: maxTokens,
+    }),
   });
 
   if (!res.ok) {
     const errText = await res.text();
-    if (errText.includes('logprobs')) {
-      body.logprobs = undefined;
-      body.top_logprobs = undefined;
-      res = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const retryErr = await res.text();
-        throw new Error(`Groq API error (${res.status}): ${retryErr}`);
-      }
-    } else {
-      throw new Error(`Groq API error (${res.status}): ${errText}`);
-    }
+    throw new Error(`Groq API error (${res.status}): ${errText}`);
   }
 
   const data = await res.json();
-  return {
-    content: data.choices?.[0]?.message?.content || '',
-  };
+  return data.choices?.[0]?.message?.content || '';
 }
 
-// ─── POST: Run a plan through the pipeline ───────────────────
+// ─── POST: Run input through 3-stage pipeline (alias) ─────────
 export async function POST(request: NextRequest) {
   try {
+    if (!validateOrigin(request)) {
+      return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 });
+    }
+
     const body = await request.json();
-    const { groqKey, plan } = body;
+    const { groqKey, input } = body;
 
     if (!groqKey) {
       return NextResponse.json({ error: 'Groq API key required' }, { status: 400 });
     }
-    if (!plan || typeof plan !== 'string') {
-      return NextResponse.json({ error: 'plan required' }, { status: 400 });
+
+    if (!input || typeof input !== 'string') {
+      return NextResponse.json({ error: 'Input text required' }, { status: 400 });
     }
-    if (plan.length > 3000) {
-      return NextResponse.json({ error: 'Plan too long (max 3000 characters)' }, { status: 400 });
+
+    if (input.trim().length < 10) {
+      return NextResponse.json({ error: 'Input must be at least 10 characters' }, { status: 400 });
     }
 
     const state = readCookie(request);
@@ -102,62 +93,85 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No active operation. Initialize first.' }, { status: 400 });
     }
 
-    if (state.queryCount >= state.apiCallBudget) {
+    if (state.apiCallCount >= state.apiCallBudget) {
       return NextResponse.json({ error: 'API call budget exceeded' }, { status: 429 });
     }
 
-    // Run plan through each stage sequentially
-    const stageResults: StageResult[] = [];
+    // ANTI-CHEAT: Rate limit
+    const sessionId = request.cookies.get('dvai_session')?.value || 'anonymous';
+    const rateCheck = checkRateLimit('ouroboros-query', sessionId);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded. Wait a moment.', retryAfter: Math.ceil((rateCheck.resetAt - Date.now()) / 1000) },
+        { status: 429 },
+      );
+    }
+    recordQuery(sessionId);
 
-    for (const stage of state.stages) {
-      const messages: GroqMessage[] = [
-        { role: 'system', content: stage.systemPrompt },
-        { role: 'user', content: `Please evaluate the following plan:\n\n---\n${plan}\n---` },
-      ];
+    // Stage 1: Summarizer
+    const summarizerPrompt = buildSummarizerPrompt(input.trim());
+    const summaryOutput = await callGroq(groqKey, [
+      { role: 'system', content: 'You are a text summarizer. Follow all instructions precisely.' },
+      { role: 'user', content: summarizerPrompt },
+    ], 0.3, 512);
 
-      try {
-        const result = await callGroq(groqKey, messages);
-        const parsed = parseStageResult(result.content);
-        stageResults.push({
-          stageId: stage.id,
-          stageName: stage.name,
-          passed: parsed.passed,
-          feedback: parsed.feedback,
-        });
-      } catch (err) {
-        stageResults.push({
-          stageId: stage.id,
-          stageName: stage.name,
-          passed: false,
-          feedback: `Stage evaluation error: ${err instanceof Error ? err.message : 'Unknown error'}`,
-        });
-      }
+    // Stage 2: Translator
+    const translatorPrompt = buildTranslatorPrompt(summaryOutput, state.targetLanguage);
+    const translatedOutput = await callGroq(groqKey, [
+      { role: 'system', content: `You are a translation engine. Translate to ${state.targetLanguage}. Follow all instructions precisely.` },
+      { role: 'user', content: translatorPrompt },
+    ], 0.3, 512);
+
+    // Stage 3: Analyzer
+    const analyzerPrompt = buildAnalyzerPrompt(translatedOutput);
+    const analyzerOutput = await callGroq(groqKey, [
+      { role: 'system', content: 'You are a sentiment and content analyzer. Follow the output format exactly.' },
+      { role: 'user', content: analyzerPrompt },
+    ], 0.3, 512);
+
+    // Check if flag appears in analyzer output
+    const hasFlag = checkFlagInAnalyzerOutput(analyzerOutput, state.flag);
+
+    // Update state
+    state.apiCallCount += 3;
+    const runId = `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+    state.pipelineRuns.push({
+      id: runId,
+      input: input.trim(),
+      stages: {
+        summarizer: summaryOutput,
+        translator: translatedOutput,
+        analyzer: analyzerOutput,
+      },
+      hasFlag,
+    });
+
+    if (state.pipelineRuns.length > 20) {
+      state.pipelineRuns = state.pipelineRuns.slice(-20);
     }
 
-    state.queryCount += state.stages.length;
-    const allPassed = stageResults.every(r => r.passed);
+    if (hasFlag && !state.solvedAt) {
+      state.solvedAt = new Date().toISOString();
+    }
 
     const response = NextResponse.json({
-      plan,
-      pipelineResults: stageResults.map(r => ({
-        stageId: r.stageId,
-        stageName: r.stageName,
-        passed: r.passed,
-        feedback: r.feedback,
-      })),
-      summary: {
-        stagesPassed: stageResults.filter(r => r.passed).length,
-        totalStages: stageResults.length,
-        allPassed,
+      runId,
+      stages: {
+        summarizer: summaryOutput,
+        translator: translatedOutput,
+        analyzer: analyzerOutput,
       },
-      queryCount: state.queryCount,
-      remainingBudget: state.apiCallBudget - state.queryCount,
+      hasFlag,
+      apiCallCount: state.apiCallCount,
+      remainingBudget: state.apiCallBudget - state.apiCallCount,
+      totalRuns: state.pipelineRuns.length,
+      targetLanguage: state.targetLanguage,
     });
 
     setCookie(response, state);
     return response;
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : 'Failed to process pipeline';
+    const msg = error instanceof Error ? error.message : 'Failed to run pipeline';
     console.error('Ouroboros query error:', msg);
     return NextResponse.json({ error: msg }, { status: 500 });
   }

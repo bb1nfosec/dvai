@@ -6,6 +6,7 @@ import {
   type SchemaPoisonState,
 } from '@/lib/schemapoison-engine';
 import { encrypt, decrypt } from '@/lib/crypto';
+import { checkRateLimit, recordQuery, validateOrigin } from '@/lib/anti-cheat';
 
 const COOKIE_NAME = 'dvai_schemapoison';
 const COOKIE_MAX_AGE = 60 * 60 * 24;
@@ -68,6 +69,10 @@ async function callGroq(apiKey: string, messages: GroqMessage[]): Promise<{ cont
 // ─── POST: Query the RAG pipeline ───────────────────────────
 export async function POST(request: NextRequest) {
   try {
+    if (!validateOrigin(request)) {
+      return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 });
+    }
+
     const body = await request.json();
     const { groqKey, question } = body;
 
@@ -95,6 +100,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Query budget exceeded' }, { status: 429 });
     }
 
+    // ANTI-CHEAT: Rate limit queries
+    const sessionId = request.cookies.get('dvai_session')?.value || 'anonymous';
+    const rateCheck = checkRateLimit('schemapoison-query', sessionId);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { error: 'Query rate limit exceeded. Slow down.', retryAfter: Math.ceil((rateCheck.resetAt - Date.now()) / 1000) },
+        { status: 429 },
+      );
+    }
+
+    // ANTI-CHEAT: Record query for behavioral analysis
+    recordQuery(sessionId);
+
     // Simulate retrieval: find top 3 relevant documents
     const retrieval = retrieveDocuments(state.kbDocuments, question, 3);
     const retrievedIds = retrieval.documents.map(d => d.id);
@@ -119,7 +137,6 @@ export async function POST(request: NextRequest) {
       retrievedIds,
     });
 
-    // Keep only last 20 queries
     if (state.recentQueries.length > 20) {
       state.recentQueries = state.recentQueries.slice(-20);
     }

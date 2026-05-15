@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { evaluateSubmission, type SchemaPoisonState } from '@/lib/schemapoison-engine';
 import { decrypt } from '@/lib/crypto';
+import { validateOrigin } from '@/lib/anti-cheat';
 
 const COOKIE_NAME = 'dvai_schemapoison';
 
@@ -19,6 +20,10 @@ function readCookie(request: NextRequest): SchemaPoisonState | null {
 // ─── POST: Submit and evaluate poisoning attempt ─────────────
 export async function POST(request: NextRequest) {
   try {
+    if (!validateOrigin(request)) {
+      return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 });
+    }
+
     const state = readCookie(request);
     if (!state) {
       return NextResponse.json({ error: 'No active operation found' }, { status: 400 });
@@ -45,6 +50,7 @@ export async function POST(request: NextRequest) {
       state.phase = 'submit';
     }
 
+    // ANTI-CHEAT: Remove targetClaim from response — never leak the answer
     return NextResponse.json({
       success: result.success,
       score: result.score,
@@ -53,7 +59,9 @@ export async function POST(request: NextRequest) {
       injectedDocRelevance: result.injectedDocRelevance,
       feedback: result.feedback,
       breakdown: result.breakdown,
-      targetClaim: state.targetClaim,
+      // ANTI-CHEAT: Only reveal the target claim if the player already succeeded
+      // and needs it for their writeup
+      ...(result.success ? { targetClaim: state.targetClaim } : {}),
     });
   } catch (error) {
     console.error('SchemaPoison submit error:', error);

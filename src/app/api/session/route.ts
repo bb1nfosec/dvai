@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateGroqApiKey } from '@/lib/groq';
+import { checkRateLimit, validateOrigin } from '@/lib/anti-cheat';
 
 // ─── POST: Create new player session (stateless) ──────────────
 // No server-side storage. Client stores session in Zustand + localStorage.
 export async function POST(request: NextRequest) {
   try {
+    if (!validateOrigin(request)) {
+      return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 });
+    }
+
     const body = await request.json();
     const { callsign } = body;
 
@@ -15,11 +20,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const rateSessionId = request.cookies.get('dvai_session')?.value || 'anonymous';
+    const rateCheck = checkRateLimit('session', rateSessionId);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded. Wait a moment.', retryAfter: Math.ceil((rateCheck.resetAt - Date.now()) / 1000) },
+        { status: 429 },
+      );
+    }
+
     const normalized = callsign.trim().toLowerCase().replace(/\s+/g, '-');
-    const sessionId = `sess_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    const newSessionId = `sess_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
     return NextResponse.json({
-      id: sessionId,
+      id: newSessionId,
       callsign: normalized,
       hasGroqKey: false,
       createdAt: new Date().toISOString(),
@@ -34,6 +48,10 @@ export async function POST(request: NextRequest) {
 // The key itself is stored client-side in Zustand (not sent to our server).
 export async function PUT(request: NextRequest) {
   try {
+    if (!validateOrigin(request)) {
+      return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 });
+    }
+
     const body = await request.json();
     const { groqKey } = body;
 

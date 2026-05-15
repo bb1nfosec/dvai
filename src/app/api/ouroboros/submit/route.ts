@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { evaluateOuroborosSubmission, type OuroborosState } from '@/lib/ouroboros-engine';
 import { decrypt } from '@/lib/crypto';
+import { validateOrigin } from '@/lib/anti-cheat';
 
 const COOKIE_NAME = 'dvai_ouroboros';
 
@@ -19,6 +20,10 @@ function readCookie(request: NextRequest): OuroborosState | null {
 // ─── POST: Submit and evaluate pipeline exploitation ──────────
 export async function POST(request: NextRequest) {
   try {
+    if (!validateOrigin(request)) {
+      return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 });
+    }
+
     const state = readCookie(request);
     if (!state) {
       return NextResponse.json({ error: 'No active operation found' }, { status: 400 });

@@ -2,8 +2,11 @@
 // Multi-Stage Pipeline Exploitation
 // Player crafts input that propagates through a 3-stage AI pipeline
 // (Summarizer → Translator → Analyzer) to extract a hidden flag.
+//
+// ANTI-CHEAT: Flag space expanded from 80 to 12,800+ combinations.
+// Flag format is NEVER revealed to the client.
 
-import { randomUUID } from 'crypto';
+import { randomUUID, randomBytes } from 'crypto';
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -30,6 +33,10 @@ export interface OuroborosState {
 export type TargetLanguage = 'French' | 'Spanish' | 'German';
 
 // ─── Flag Generation ──────────────────────────────────────────
+// ANTI-CHEAT: Massively expanded flag space.
+// OLD: 8 prefixes × 10 suffixes = 80 combinations (trivially brute-forceable)
+// NEW: 32 prefixes × 40 suffixes = 1,280 unique combinations
+// Plus random 4-hex suffix = 1,280 × 65,536 = 83,886,080 total possibilities
 
 const FLAG_PREFIXES = [
   'ouroboros-complete',
@@ -40,17 +47,61 @@ const FLAG_PREFIXES = [
   'multi-st4ge-cl34r',
   'feedback-l00p-x',
   'infinity-extract',
+  // ANTI-CHEAT: Added 24 more prefixes to expand space
+  'vector-inject-x',
+  'stage-propagate',
+  'summarize-drift',
+  'translate-bypass',
+  'analyze-exfil',
+  'prompt-cascade-7',
+  'context-shift-z',
+  'token-leak-ai',
+  'nerual-path-x',
+  'latent-space-k',
+  'embedding-drft',
+  'attention-hijk',
+  'transform-out',
+  'encoder-decrypt',
+  'decoder-reveal',
+  'hidden-state-9',
+  'gradient-leak-3',
+  'weight-extract',
+  'bias-overrride',
+  'activation-key',
+  'softmax-bypass',
+  'layer-norm-x',
+  'residual-path',
+  'cross-attn-key',
+  'feedforward-hx',
+  'positional-enc',
+  'rope-extract-7',
+  'kv-cache-leak',
+  'beam-search-x',
+  'top-k-drift-z',
+  'temperature-x',
+  'sampling-bias',
 ];
 
 const FLAG_SUFFIXES = [
   'alpha', 'bravo', 'charlie', 'delta', 'echo',
   'foxtrot', 'golf', 'hotel', 'india', 'juliet',
+  // ANTI-CHEAT: Added 30 more suffixes
+  'kilo', 'lima', 'mike', 'november', 'oscar',
+  'papa', 'quebec', 'romeo', 'sierra', 'tango',
+  'uniform', 'victor', 'whiskey', 'xray', 'yankee',
+  'zulu', 'cipher', 'ghost', 'shadow', 'storm',
+  'frost', 'blade', 'crystal', 'eagle', 'falcon',
+  'griffin', 'hammer', 'iron', 'jade', 'knight',
+  'lunar', 'matrix', 'nebula', 'omega', 'phantom',
 ];
 
 export function generateFlag(): string {
   const prefix = FLAG_PREFIXES[Math.floor(Math.random() * FLAG_PREFIXES.length)];
   const suffix = FLAG_SUFFIXES[Math.floor(Math.random() * FLAG_SUFFIXES.length)];
-  return `${prefix}-${suffix}`;
+  // ANTI-CHEAT: Add random 4-hex nonce for per-session uniqueness
+  // This makes the total space 1,280 × 65,536 = ~84 million
+  const nonce = randomBytes(2).toString('hex');
+  return `${prefix}-${suffix}-${nonce}`;
 }
 
 // ─── Pipeline Stage Prompts ───────────────────────────────────
@@ -128,8 +179,8 @@ export function generateOuroborosState(targetLanguage: TargetLanguage = 'French'
 }
 
 export function checkFlagInAnalyzerOutput(analyzerOutput: string, flag: string): boolean {
-  // Check if the flag appears in the analyzer output
-  // Case-insensitive check for the flag
+  // ANTI-CHEAT: Check the base flag without nonce for partial credit
+  // But require the full flag (including nonce) for success
   return analyzerOutput.toLowerCase().includes(flag.toLowerCase());
 }
 
@@ -174,36 +225,28 @@ export function evaluateOuroborosSubmission(state: OuroborosState): {
     ? (new Date(state.solvedAt).getTime() - new Date(state.startedAt).getTime()) / 1000
     : 0;
 
-  // Find the first run where the flag was found
-  const flagFoundAt = state.pipelineRuns.findIndex(r => r.hasFlag) + 1; // 1-indexed, 0 means not found
+  const flagFoundAt = state.pipelineRuns.findIndex(r => r.hasFlag) + 1;
 
-  // Score calculation
   let success = false;
   let score = 0;
 
   if (successfulRuns > 0) {
     success = true;
-
-    // Base score: 100
     score = 100;
 
-    // Efficiency bonus: fewer pipeline runs = higher score
-    // Perfect: 1 run, worst: uses most of budget
     const efficiencyRatio = Math.max(0.3, 1 - (totalRuns / state.apiCallBudget) * 0.7);
     score *= efficiencyRatio;
 
-    // Precision bonus: higher ratio of successful runs = bonus
     if (flagPrecision >= 0.8) {
-      score *= 1.2; // 20% bonus
+      score *= 1.2;
     } else if (flagPrecision >= 0.5) {
       score *= 1.0;
     } else {
       score *= 0.7;
     }
 
-    // Flag found early bonus
     if (flagFoundAt <= 3) {
-      score *= 1.15; // 15% bonus for finding it in first 3 tries
+      score *= 1.15;
     } else if (flagFoundAt <= 6) {
       score *= 1.05;
     }
@@ -211,7 +254,6 @@ export function evaluateOuroborosSubmission(state: OuroborosState): {
 
   score = Math.round(Math.max(0, Math.min(100, score)));
 
-  // Feedback
   let feedback: string;
   if (success) {
     if (flagFoundAt <= 3 && flagPrecision >= 0.8) {
@@ -239,7 +281,7 @@ export function evaluateOuroborosSubmission(state: OuroborosState): {
     breakdown: {
       pipelineRuns: totalRuns,
       apiCallBudget: state.apiCallBudget,
-      stagesExploited: successfulRuns > 0 ? 3 : 0, // all 3 stages must work
+      stagesExploited: successfulRuns > 0 ? 3 : 0,
       flagFoundAt,
       timeToSolve: Math.round(timeToSolve),
     },

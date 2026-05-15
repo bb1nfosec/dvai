@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { calculateScore, type LongconState } from '@/lib/longcon-engine';
 import { decrypt } from '@/lib/crypto';
+import { validateOrigin } from '@/lib/anti-cheat';
 
 const COOKIE_NAME = 'dvai_longcon';
 
@@ -19,6 +20,10 @@ function readCookie(request: NextRequest): LongconState | null {
 // ─── POST: Submit and evaluate long-con attempt ──────────────
 export async function POST(request: NextRequest) {
   try {
+    if (!validateOrigin(request)) {
+      return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 });
+    }
+
     const state = readCookie(request);
     if (!state) {
       return NextResponse.json({ error: 'No active operation found' }, { status: 400 });

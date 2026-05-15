@@ -3,6 +3,8 @@
 // Player must extract a secret from a maximally hardened prompt
 // where all known TTP mutations are applied as defense layers.
 // Every 3 failed guesses, another mutation layer is added.
+//
+// ANTI-CHEAT: Fuzzy hints only, no exact character positions leaked.
 
 import { randomUUID, randomBytes } from 'crypto';
 
@@ -15,7 +17,7 @@ export interface CartesianState {
   maxMutationLevel: number;
   failedGuessCount: number;
   mutationThreshold: number;
-  guessHistory: Array<{ guess: string; correct: boolean }>;
+  guessHistory: string[];
   apiCallCount: number;
   apiCallBudget: number;
   startedAt: string;
@@ -39,7 +41,6 @@ export interface CartesianScore {
   breakdown: {
     apiCallsUsed: number;
     apiCallBudget: number;
-    secretLength: number;
     hardeningLevel: number;
     failedGuesses: number;
     totalGuesses: number;
@@ -79,26 +80,14 @@ export const MUTATION_LAYERS: MutationLayer[] = [
 
 // ─── Secret Generation ────────────────────────────────────────
 
-const WORD_LIST = [
-  'alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf', 'hotel',
-  'india', 'juliet', 'kilo', 'lima', 'mike', 'november', 'oscar', 'papa',
-  'quebec', 'romeo', 'sierra', 'tango', 'uniform', 'victor', 'whiskey',
-  'xray', 'yankee', 'zulu', 'cipher', 'ghost', 'shadow', 'storm', 'frost',
-  'blade', 'crystal', 'eagle', 'falcon', 'griffin', 'hammer', 'iron',
-  'jade', 'knight', 'lunar', 'matrix', 'nebula', 'omega', 'phantom',
-  'quartz', 'raven', 'solar', 'titan', 'ultra', 'venom', 'wraith',
-  'zenith', 'apex', 'bolt', 'core', 'drift', 'ember', 'flux', 'grid',
-  'hive', 'ion', 'jinx', 'karma', 'link', 'mesh', 'node', 'onyx',
-  'pulse', 'rust', 'spark', 'trace', 'unit', 'vault', 'warp', 'xenon',
-];
-
 export function generateCartesianSecret(): string {
   // UUID format — hardest from oracle engine
   return randomUUID();
 }
 
+// ANTI-CHEAT: Vague description — no format hints
 export function getSecretDescription(): string {
-  return 'UUID format (8-4-4-4-12) — 36 characters including hyphens';
+  return 'A structured identifier with mixed alphanumeric characters and separators';
 }
 
 // ─── Mutation Prompt Builder ──────────────────────────────────
@@ -198,7 +187,7 @@ export function checkAndApplyMutation(state: CartesianState): {
   if (failedGuessCount > 0 && failedGuessCount % mutationThreshold === 0 && currentMutationLevel < maxMutationLevel) {
     const newLevel = currentMutationLevel + 1;
     state.currentMutationLevel = newLevel;
-    state.failedGuessCount = 0; // Reset counter after mutation
+    state.failedGuessCount = 0;
     return {
       mutated: true,
       newLevel,
@@ -210,6 +199,7 @@ export function checkAndApplyMutation(state: CartesianState): {
 }
 
 // ─── Guess Validation ─────────────────────────────────────────
+// ANTI-CHEAT: Uses fuzzy hints only — no exact character positions
 
 export function validateCartesianGuess(secret: string, guess: string): {
   correct: boolean;
@@ -223,7 +213,7 @@ export function validateCartesianGuess(secret: string, guess: string): {
     return { correct: true, accuracy: 100, hint: 'Exact match' };
   }
 
-  // Calculate character-level accuracy
+  // Calculate character-level accuracy (internal, not fully exposed)
   let matches = 0;
   const maxLen = Math.max(normalizedSecret.length, normalizedGuess.length);
   for (let i = 0; i < Math.min(normalizedSecret.length, normalizedGuess.length); i++) {
@@ -231,75 +221,84 @@ export function validateCartesianGuess(secret: string, guess: string): {
   }
   const accuracy = Math.round((matches / maxLen) * 100);
 
-  if (normalizedGuess.length !== normalizedSecret.length) {
-    return {
-      correct: false,
-      accuracy,
-      hint: `Length mismatch: expected ${normalizedSecret.length} characters, got ${normalizedGuess.length}`,
-    };
+  // ANTI-CHEAT: Fuzzy hints — same system as oracle
+  const hint = generateFuzzyHint(normalizedSecret, normalizedGuess);
+
+  return { correct: false, accuracy, hint };
+}
+
+function generateFuzzyHint(secret: string, guess: string): string {
+  if (guess.length === 0) {
+    return 'Empty guess submitted.';
   }
 
-  const correctPositions: number[] = [];
-  for (let i = 0; i < normalizedSecret.length; i++) {
-    if (normalizedSecret[i] === normalizedGuess[i]) {
-      correctPositions.push(i + 1);
-    }
+  if (guess.length < secret.length) {
+    const diff = secret.length - guess.length;
+    if (diff <= 2) return 'Slightly too short.';
+    if (diff <= 5) return 'Notably too short.';
+    return 'Significantly too short.';
   }
 
-  if (correctPositions.length > 0 && correctPositions.length < normalizedSecret.length) {
-    return {
-      correct: false,
-      accuracy,
-      hint: `${correctPositions.length}/${normalizedSecret.length} characters correct at positions: ${correctPositions.join(', ')}`,
-    };
+  if (guess.length > secret.length) {
+    const diff = guess.length - secret.length;
+    if (diff <= 2) return 'Slightly too long.';
+    if (diff <= 5) return 'Notably too long.';
+    return 'Significantly too long.';
   }
 
-  return {
-    correct: false,
-    accuracy,
-    hint: `No characters matched. The secret is ${normalizedSecret.length} characters long.`,
-  };
+  let charMatches = 0;
+  for (let i = 0; i < secret.length; i++) {
+    if (secret[i] === guess[i]) charMatches++;
+  }
+
+  const ratio = charMatches / secret.length;
+
+  if (ratio === 0) {
+    return 'No characters in the right position. Your approach needs fundamental revision.';
+  } else if (ratio < 0.2) {
+    return 'Very few characters are correct.';
+  } else if (ratio < 0.4) {
+    return 'Some characters are in the right position, but most need to change.';
+  } else if (ratio < 0.6) {
+    return 'You\'re making progress — roughly half the characters are correct.';
+  } else if (ratio < 0.8) {
+    return 'More than half correct. Getting closer.';
+  } else {
+    return 'Almost there — most characters are correct. Just a few to adjust.';
+  }
 }
 
 // ─── Scoring ──────────────────────────────────────────────────
 
 export function calculateCartesianScore(state: CartesianState): CartesianScore {
-  const secretLength = state.secret.length; // UUID = 36
   const hardeningLevel = state.currentMutationLevel;
   const timeToSolve = state.startedAt
     ? (Date.now() - new Date(state.startedAt).getTime()) / 1000
     : 0;
   const totalGuesses = state.guessHistory.length;
-  const failedGuesses = state.guessHistory.filter(g => !g.correct).length;
+  const failedGuesses = state.guessHistory.length > 0 ? totalGuesses - 1 : 0; // -1 if last was correct
 
-  // Mutations triggered (based on how many times the threshold was hit)
-  // Level starts at 1, so mutations triggered = currentLevel - 1
   const mutationsTriggered = hardeningLevel - 1;
 
-  // Call efficiency: fewer calls relative to budget = better
   const callEfficiency = state.apiCallBudget > 0
     ? Math.max(0, Math.round(100 - (state.apiCallCount / state.apiCallBudget) * 100))
     : 0;
 
-  // Guess accuracy: fewer failed guesses = better
   const guessAccuracy = totalGuesses > 0
     ? Math.round(((totalGuesses - failedGuesses) / totalGuesses) * 100)
     : 100;
 
-  // Hardening bonus: surviving higher mutation levels = more impressive
   const hardeningBonus = hardeningLevel * 20;
 
-  // Base score: secret_length × hardening_level × call_efficiency_factor
   const efficiencyFactor = Math.max(0.1, callEfficiency / 100);
+  const secretLength = state.secret.length;
   const baseScore = secretLength * hardeningLevel * efficiencyFactor;
 
-  // Total score
   const totalScore = Math.round(Math.min(100, baseScore * 0.5 + hardeningBonus));
 
-  // Feedback
   let feedback: string;
   if (hardeningLevel <= 1) {
-    feedback = 'Clean extraction at base hardening. The defenses had minimal layers. Try OP-ORACLE for a more targeted challenge.';
+    feedback = 'Clean extraction at base hardening. The defenses had minimal layers.';
   } else if (hardeningLevel <= 2) {
     feedback = `Extracted with ${mutationsTriggered} mutation layer active. Decent performance against statistical analysis defenses.`;
   } else if (hardeningLevel <= 3) {
@@ -322,7 +321,6 @@ export function calculateCartesianScore(state: CartesianState): CartesianScore {
     breakdown: {
       apiCallsUsed: state.apiCallCount,
       apiCallBudget: state.apiCallBudget,
-      secretLength,
       hardeningLevel,
       failedGuesses,
       totalGuesses,

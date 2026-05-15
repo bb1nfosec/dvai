@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { injectDocument, type SchemaPoisonState } from '@/lib/schemapoison-engine';
 import { encrypt, decrypt } from '@/lib/crypto';
+import { checkRateLimit, validateOrigin } from '@/lib/anti-cheat';
 
 const COOKIE_NAME = 'dvai_schemapoison';
 const COOKIE_MAX_AGE = 60 * 60 * 24;
@@ -30,6 +31,10 @@ function setCookie(response: NextResponse, state: SchemaPoisonState): void {
 // ─── POST: Inject a poisoned document into the KB ───────────
 export async function POST(request: NextRequest) {
   try {
+    if (!validateOrigin(request)) {
+      return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 });
+    }
+
     const body = await request.json();
     const { title, content } = body;
 
@@ -64,6 +69,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: `Cannot inject in "${state.phase}" phase. Document already injected.` },
         { status: 400 },
+      );
+    }
+
+    // ANTI-CHEAT: Rate limit injections
+    const sessionId = request.cookies.get('dvai_session')?.value || 'anonymous';
+    const rateCheck = checkRateLimit('schemapoison-inject', sessionId);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { error: 'Too many injection attempts. Wait a moment.', retryAfter: Math.ceil((rateCheck.resetAt - Date.now()) / 1000) },
+        { status: 429 },
       );
     }
 

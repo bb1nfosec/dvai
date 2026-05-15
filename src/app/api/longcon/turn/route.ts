@@ -6,6 +6,7 @@ import {
   type LongconState,
 } from '@/lib/longcon-engine';
 import { encrypt, decrypt } from '@/lib/crypto';
+import { checkRateLimit, validateOrigin, recordQuery } from '@/lib/anti-cheat';
 
 const COOKIE_NAME = 'dvai_longcon';
 const COOKIE_MAX_AGE = 60 * 60 * 24;
@@ -68,6 +69,10 @@ async function callGroq(apiKey: string, messages: GroqMessage[]): Promise<{ cont
 // ─── POST: Process one conversation turn ─────────────────────
 export async function POST(request: NextRequest) {
   try {
+    if (!validateOrigin(request)) {
+      return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 });
+    }
+
     const body = await request.json();
     const { groqKey, message } = body;
 
@@ -78,6 +83,16 @@ export async function POST(request: NextRequest) {
     if (!message || typeof message !== 'string') {
       return NextResponse.json({ error: 'message required' }, { status: 400 });
     }
+
+    const sessionId = request.cookies.get('dvai_session')?.value || 'anonymous';
+    const rateCheck = checkRateLimit('longcon-turn', sessionId);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded. Wait a moment.', retryAfter: Math.ceil((rateCheck.resetAt - Date.now()) / 1000) },
+        { status: 429 },
+      );
+    }
+    recordQuery(sessionId);
 
     const state = readCookie(request);
     if (!state) {
