@@ -74,6 +74,42 @@ export interface SchemaPoisonChatMessage {
   timestamp: number;
 }
 
+export interface OuroborosPipelineRun {
+  id: string;
+  input: string;
+  stages: {
+    summarizer: string;
+    translator: string;
+    analyzer: string;
+  };
+  hasFlag: boolean;
+  timestamp: number;
+}
+
+export interface OuroborosState {
+  isRunning: boolean;
+  targetLanguage: string;
+  pipelineRuns: OuroborosPipelineRun[];
+  apiCallCount: number;
+  apiCallBudget: number;
+  phase: 'challenge' | 'submit';
+  flagHint: string | null;
+  score: {
+    totalScore: number;
+    pipelineRunsUsed: number;
+    flagPrecision: number;
+    efficiency: number;
+    feedback: string;
+    breakdown: {
+      pipelineRuns: number;
+      apiCallBudget: number;
+      stagesExploited: number;
+      flagFoundAt: number;
+      timeToSolve: number;
+    };
+  } | null;
+}
+
 export interface SchemaPoisonState {
   isQuerying: boolean;
   chatHistory: SchemaPoisonChatMessage[];
@@ -123,6 +159,9 @@ interface SessionStore {
   // OP-SCHEMAPOISON specific
   schemaPoison: SchemaPoisonState;
 
+  // OP-OUROBOROS specific
+  ouroboros: OuroborosState;
+
   // Mutations (accumulated across operations)
   mutations: MutationEntry[];
 
@@ -152,14 +191,23 @@ interface SessionStore {
   setSchemaPoisonPhase: (phase: 'inject' | 'query' | 'submit') => void;
   setSchemaPoisonScore: (score: SchemaPoisonState['score']) => void;
   resetSchemaPoison: () => void;
+  setOuroborosRunning: (running: boolean) => void;
+  setOuroborosTargetLanguage: (lang: string) => void;
+  addOuroborosPipelineRun: (run: OuroborosPipelineRun) => void;
+  incrementOuroborosApiCallCount: () => void;
+  setOuroborosApiCallBudget: (budget: number) => void;
+  setOuroborosPhase: (phase: 'challenge' | 'submit') => void;
+  setOuroborosFlagHint: (hint: string) => void;
+  setOuroborosScore: (score: OuroborosState['score']) => void;
+  resetOuroboros: () => void;
 }
 
 const defaultOperations: Record<OpCode, OperationState> = {
   'OP-ORACLE': { opCode: 'OP-ORACLE', status: 'available', hardeningLevel: 1, apiCallsUsed: 0, apiCallBudget: 10000, operationId: null, startedAt: null, solvedAt: null },
   'OP-SCHEMAPOISON': { opCode: 'OP-SCHEMAPOISON', status: 'available', hardeningLevel: 1, apiCallsUsed: 0, apiCallBudget: 30, operationId: null, startedAt: null, solvedAt: null },
   'OP-EIGENBLIND': { opCode: 'OP-EIGENBLIND', status: 'locked', hardeningLevel: 1, apiCallsUsed: 0, apiCallBudget: 0, operationId: null, startedAt: null, solvedAt: null },
-  'OP-OUROBOROS': { opCode: 'OP-OUROBOROS', status: 'locked', hardeningLevel: 1, apiCallsUsed: 0, apiCallBudget: 0, operationId: null, startedAt: null, solvedAt: null },
-  'OP-LONGCON': { opCode: 'OP-LONGCON', status: 'locked', hardeningLevel: 1, apiCallsUsed: 0, apiCallBudget: 0, operationId: null, startedAt: null, solvedAt: null },
+  'OP-OUROBOROS': { opCode: 'OP-OUROBOROS', status: 'available', hardeningLevel: 1, apiCallsUsed: 0, apiCallBudget: 20, operationId: null, startedAt: null, solvedAt: null },
+  'OP-LONGCON': { opCode: 'OP-LONGCON', status: 'available', hardeningLevel: 1, apiCallsUsed: 0, apiCallBudget: 20, operationId: null, startedAt: null, solvedAt: null },
   'OP-CARTESIAN': { opCode: 'OP-CARTESIAN', status: 'locked', hardeningLevel: 1, apiCallsUsed: 0, apiCallBudget: 0, operationId: null, startedAt: null, solvedAt: null },
 };
 
@@ -169,6 +217,17 @@ const defaultOracle: OracleState = {
   guessHistory: [],
   score: null,
   notes: '',
+};
+
+const defaultOuroboros: OuroborosState = {
+  isRunning: false,
+  targetLanguage: 'French',
+  pipelineRuns: [],
+  apiCallCount: 0,
+  apiCallBudget: 20,
+  phase: 'challenge',
+  flagHint: null,
+  score: null,
 };
 
 const defaultSchemaPoison: SchemaPoisonState = {
@@ -197,6 +256,7 @@ export const useSessionStore = create<SessionStore>()(
       operations: defaultOperations,
       oracle: defaultOracle,
       schemaPoison: defaultSchemaPoison,
+      ouroboros: defaultOuroboros,
       mutations: [],
 
       setSession: (sessionId, callsign) => set({ sessionId, callsign }),
@@ -339,6 +399,59 @@ export const useSessionStore = create<SessionStore>()(
         },
         schemaPoison: defaultSchemaPoison,
       })),
+
+      setOuroborosRunning: (running) => set((state) => ({
+        ouroboros: { ...state.ouroboros, isRunning: running },
+      })),
+
+      setOuroborosTargetLanguage: (lang) => set((state) => ({
+        ouroboros: { ...state.ouroboros, targetLanguage: lang },
+      })),
+
+      addOuroborosPipelineRun: (run) => set((state) => ({
+        ouroboros: {
+          ...state.ouroboros,
+          pipelineRuns: [...state.ouroboros.pipelineRuns, run],
+        },
+      })),
+
+      incrementOuroborosApiCallCount: () => set((state) => ({
+        ouroboros: {
+          ...state.ouroboros,
+          apiCallCount: state.ouroboros.apiCallCount + 1,
+        },
+      })),
+
+      setOuroborosApiCallBudget: (budget) => set((state) => ({
+        ouroboros: { ...state.ouroboros, apiCallBudget: budget },
+      })),
+
+      setOuroborosPhase: (phase) => set((state) => ({
+        ouroboros: { ...state.ouroboros, phase },
+      })),
+
+      setOuroborosFlagHint: (hint) => set((state) => ({
+        ouroboros: { ...state.ouroboros, flagHint: hint },
+      })),
+
+      setOuroborosScore: (score) => set((state) => ({
+        ouroboros: { ...state.ouroboros, score },
+      })),
+
+      resetOuroboros: () => set((state) => ({
+        operations: {
+          ...state.operations,
+          'OP-OUROBOROS': {
+            ...state.operations['OP-OUROBOROS'],
+            status: 'available',
+            apiCallsUsed: 0,
+            operationId: null,
+            startedAt: null,
+            solvedAt: null,
+          },
+        },
+        ouroboros: defaultOuroboros,
+      })),
     }),
     {
       name: 'dvai-session',
@@ -367,6 +480,16 @@ export const useSessionStore = create<SessionStore>()(
           queryBudget: state.schemaPoison.queryBudget,
           phase: state.schemaPoison.phase,
           score: state.schemaPoison.score,
+        },
+        ouroboros: {
+          isRunning: state.ouroboros.isRunning,
+          targetLanguage: state.ouroboros.targetLanguage,
+          pipelineRuns: state.ouroboros.pipelineRuns.slice(-20),
+          apiCallCount: state.ouroboros.apiCallCount,
+          apiCallBudget: state.ouroboros.apiCallBudget,
+          phase: state.ouroboros.phase,
+          flagHint: state.ouroboros.flagHint,
+          score: state.ouroboros.score,
         },
         mutations: state.mutations,
       }),
