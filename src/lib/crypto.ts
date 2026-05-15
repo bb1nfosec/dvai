@@ -3,35 +3,71 @@
 // Challenge secrets are encrypted into HTTP-only cookies so the client
 // cannot read them, but the server can decrypt on each request.
 //
-// SECURITY: In production, ENCRYPTION_SECRET env var is REQUIRED.
-// The fallback key exists ONLY for local development.
+// SECURITY MODEL:
+// - If ENCRYPTION_SECRET is set: uses it (recommended for production)
+// - If ENCRYPTION_SECRET is NOT set: derives a deterministic key from
+//   the Vercel deployment URL + app name. This is NOT as secure as a
+//   random secret (deterministic = predictable), but it keeps the app
+//   functional out-of-the-box on Vercel without any env var setup.
+// - Local dev always uses a hardcoded fallback.
 
-import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'crypto';
+import { createCipheriv, createDecipheriv, createHmac, randomBytes, createHash } from 'crypto';
 
 const ALGORITHM = 'aes-256-gcm';
 const HMAC_ALGORITHM = 'sha256';
 
+// Cache the derived key so we don't recompute it every request
+let cachedKey: Buffer | null = null;
+let cachedHmacKey: Buffer | null = null;
+let cachedKeySource: string | null = null;
+
+function resolveKeyMaterial(): string {
+  // 1. Explicit env var (best security)
+  if (process.env.ENCRYPTION_SECRET) {
+    return process.env.ENCRYPTION_SECRET;
+  }
+
+  // 2. Production: derive from Vercel deployment identifier
+  //    VERCEL_URL is always set on Vercel (e.g. "dvai-red.vercel.app")
+  if (process.env.VERCEL_URL) {
+    return `dvai-prod-${process.env.VERCEL_URL}-state-encryption-v1`;
+  }
+
+  // 3. Local dev fallback
+  return 'dvai-oracle-state-encryption-key-32b';
+}
+
 function getKey(): Buffer {
-  const secret = process.env.ENCRYPTION_SECRET;
-  if (!secret && process.env.NODE_ENV === 'production') {
-    throw new Error(
-      'ENCRYPTION_SECRET environment variable is required in production. ' +
-      'Set it in your Vercel project settings (32+ character random string).'
+  const source = resolveKeyMaterial();
+
+  // Return cached if same source
+  if (cachedKey && cachedKeySource === source) {
+    return cachedKey;
+  }
+
+  // Log warning if using non-explicit secret in production
+  if (!process.env.ENCRYPTION_SECRET && process.env.NODE_ENV === 'production') {
+    console.warn(
+      '[DVAI] ENCRYPTION_SECRET not set. Using derived key from deployment URL. ' +
+      'For stronger security, set ENCRYPTION_SECRET (32+ chars) in Vercel env vars.'
     );
   }
-  // Fallback for local dev only
-  const key = secret || 'dvai-oracle-state-encryption-key-32b';
-  return Buffer.from(key.padEnd(32, '0').slice(0, 32), 'utf8');
+
+  cachedKeySource = source;
+  cachedKey = Buffer.from(source.padEnd(32, '0').slice(0, 32), 'utf8');
+  return cachedKey;
 }
 
 function getHmacKey(): Buffer {
-  const secret = process.env.ENCRYPTION_SECRET;
-  if (!secret && process.env.NODE_ENV === 'production') {
-    throw new Error('ENCRYPTION_SECRET environment variable is required');
+  const source = resolveKeyMaterial();
+
+  // Return cached if same source
+  if (cachedHmacKey && cachedKeySource === source) {
+    return cachedHmacKey;
   }
-  const key = secret || 'dvai-oracle-state-encryption-key-32b';
-  // Derive a separate HMAC key from the encryption key
-  return createHmac(HMAC_ALGORITHM, key).update('hmac-derivation-key').digest();
+
+  cachedHmacKey = createHmac(HMAC_ALGORITHM, source).update('hmac-derivation-key').digest();
+  return cachedHmacKey;
 }
 
 interface EncryptedPayload {

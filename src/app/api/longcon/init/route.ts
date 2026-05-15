@@ -75,6 +75,10 @@ export async function POST(request: NextRequest) {
     return response;
   } catch (error) {
     console.error('LongCon init error:', error);
-    return NextResponse.json({ error: 'Failed to initialize operation' }, { status: 500 });
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json(
+      { error: 'Failed to initialize operation. Try refreshing the page and try again.', debug: process.env.NODE_ENV !== 'production' ? msg : undefined },
+      { status: 500 }
+    );
   }
 }
