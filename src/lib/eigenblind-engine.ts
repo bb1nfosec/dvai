@@ -358,6 +358,7 @@ export async function evaluateEigenblindSubmission(
 
   // Score calculation
   let score = 0;
+  let lengthRating = 'Long';
 
   if (success) {
     score = 100;
@@ -368,7 +369,7 @@ export async function evaluateEigenblindSubmission(
 
     // Suffix length bonus (shorter = better)
     let lengthMultiplier = 1.0;
-    let lengthRating = 'Long';
+    lengthRating = 'Long';
     if (suffix.length <= 30) {
       lengthMultiplier = 1.15;
       lengthRating = 'Elite';

@@ -202,7 +202,7 @@ export function ResultsPanel() {
                   <span className={`text-xs font-semibold ${survived ? style?.color : 'text-muted-foreground'}`}>
                     {LAYER_NAMES[level]}
                   </span>
-                  {survied && (
+                  {survived && (
                     <Badge className="text-[8px] h-4 px-1 ml-auto bg-green-500/20 text-green-400 border border-green-500/30">
                       BYPASSED
                     </Badge>
