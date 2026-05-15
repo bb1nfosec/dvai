@@ -47,6 +47,15 @@ Thumbs.db
 # Z-scripts (dev environment)
 .zscripts/
 
-# Misc
+# Dev artifacts
 *.tsbuildinfo
 next-env.d.ts
+worklog.md
+download/
+
+# Skills (internal)
+skills/
+
+# Mini-services (internal)
+mini-services/
+examples/
