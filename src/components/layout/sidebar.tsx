@@ -35,7 +35,7 @@ const navItems: NavItem[] = [
   { tab: 'eigenblind', label: 'OP-EIGENBLIND', icon: Crosshair, opCode: 'OP-EIGENBLIND', locked: true },
   { tab: 'ouroboros', label: 'OP-OUROBOROS', icon: RefreshCw, opCode: 'OP-OUROBOROS', locked: true },
   { tab: 'longcon', label: 'OP-LONGCON', icon: MessageSquare, opCode: 'OP-LONGCON', locked: true },
-  { tab: 'cartesian', label: 'OP-CARTESIAN', icon: ShieldAlert, opCode: 'OP-CARTESIAN', locked: true },
+  { tab: 'cartesian', label: 'OP-CARTESIAN', icon: ShieldAlert, opCode: 'OP-CARTESIAN' },
   { tab: 'ttps', label: 'TTP Registry', icon: FileText },
 ];
 

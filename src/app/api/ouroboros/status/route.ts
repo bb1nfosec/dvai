@@ -1,39 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { type OuroborosState } from '@/lib/ouroboros-engine';
 import { decrypt } from '@/lib/crypto';
 
 const COOKIE_NAME = 'dvai_ouroboros';
 
-// ─── GET: Ouroboros operation status ────────────────────────
-export async function GET(request: NextRequest) {
+function readCookie(request: NextRequest): OuroborosState | null {
+  const raw = request.cookies.get(COOKIE_NAME)?.value;
+  if (!raw) return null;
+  const json = decrypt(raw);
+  if (!json) return null;
   try {
-    const raw = request.cookies.get(COOKIE_NAME)?.value;
-    if (!raw) {
-      return NextResponse.json({ error: 'No active operation' }, { status: 404 });
-    }
-
-    const json = decrypt(raw);
-    if (!json) {
-      return NextResponse.json({ error: 'Invalid or corrupted operation data' }, { status: 400 });
-    }
-
-    const state = JSON.parse(json);
-
-    return NextResponse.json({
-      id: state.operationId,
-      opCode: 'OP-OUROBOROS',
-      status: 'active',
-      queryCount: state.queryCount,
-      apiCallBudget: state.apiCallBudget,
-      remainingBudget: state.apiCallBudget - state.queryCount,
-      stages: state.stages.map(s => ({
-        id: s.id,
-        name: s.name,
-        role: s.role,
-      })),
-      startedAt: state.startedAt,
-    });
-  } catch (error) {
-    console.error('Ouroboros status error:', error);
-    return NextResponse.json({ error: 'Failed to get status' }, { status: 500 });
+    return JSON.parse(json) as OuroborosState;
+  } catch {
+    return null;
   }
+}
+
+// ─── GET: Current operation status ────────────────────────────
+export async function GET(request: NextRequest) {
+  const state = readCookie(request);
+  if (!state) {
+    return NextResponse.json({ error: 'No active operation' }, { status: 400 });
+  }
+
+  return NextResponse.json({
+    operationId: state.operationId,
+    targetLanguage: state.targetLanguage,
+    apiCallCount: state.apiCallCount,
+    apiCallBudget: state.apiCallBudget,
+    remainingBudget: state.apiCallBudget - state.apiCallCount,
+    totalRuns: state.pipelineRuns.length,
+    successfulRuns: state.pipelineRuns.filter(r => r.hasFlag).length,
+    startedAt: state.startedAt,
+    solvedAt: state.solvedAt,
+  });
 }

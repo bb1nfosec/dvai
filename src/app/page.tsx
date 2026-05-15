@@ -8,7 +8,10 @@ import { OpsGrid } from '@/components/dashboard/ops-grid';
 import { MetricsPanel } from '@/components/dashboard/metrics-panel';
 import { OracleView } from '@/components/oracle/oracle-view';
 import { SchemaPoisonView } from '@/components/schemapoison/schemapoison-view';
+import { OuroborosView } from '@/components/ouroboros/ouroboros-view';
+import { EigenblindView } from '@/components/eigenblind/eigenblind-view';
 import { LongconView } from '@/components/longcon/longcon-view';
+import { CartesianView } from '@/components/cartesian/cartesian-view';
 import { TTPRegistry } from '@/components/ttps/ttp-registry';
 import { Shield, Lock, Database, Crosshair, RefreshCw, MessageSquare, ShieldAlert } from 'lucide-react';
 
@@ -94,13 +97,13 @@ export default function Home() {
       case 'schemapoison':
         return <SchemaPoisonView />;
       case 'eigenblind':
-        return <LockedOpView name="OP-EIGENBLIND" codename="Adversarial Suffix Optimization" />;
+        return <EigenblindView />;
       case 'ouroboros':
-        return <LockedOpView name="OP-OUROBOROS" codename="Multi-Stage Pipeline Exploitation" />;
+        return <OuroborosView />;
       case 'longcon':
         return <LongconView />;
       case 'cartesian':
-        return <LockedOpView name="OP-CARTESIAN" codename="Mutation Engine Bypass" />;
+        return <CartesianView />;
       default:
         return <DashboardView />;
     }

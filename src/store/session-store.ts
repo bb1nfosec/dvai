@@ -110,6 +110,70 @@ export interface OuroborosState {
   } | null;
 }
 
+export interface EigenblindState {
+  isClassifying: boolean;
+  taskType: 'sentiment' | 'toxicity' | 'spam' | null;
+  targetInput: string | null;
+  targetInputCategory: string | null;
+  targetClassification: string | null;
+  correctClassification: string | null;
+  testResults: Array<{
+    suffix: string;
+    classified: string;
+    isMisclassification: boolean;
+    confidence: number;
+    topLogprobs: Array<{ token: string; logprob: number }>;
+    timestamp: string;
+  }>;
+  apiCallCount: number;
+  apiCallBudget: number;
+  phase: 'challenge' | 'submit';
+  score: {
+    totalScore: number;
+    successRate: number;
+    suffixLength: number;
+    apiCallsUsed: number;
+    feedback: string;
+    breakdown: {
+      suffixLength: number;
+      suffixLengthRating: string;
+      consistencyScore: number;
+      apiCallEfficiency: number;
+    };
+  } | null;
+}
+
+export interface CartesianState {
+  messages: ChatMessage[];
+  isQuerying: boolean;
+  guessHistory: Array<{ guess: string; correct: boolean; accuracy: number }>;
+  currentMutationLevel: number;
+  maxMutationLevel: number;
+  failedGuessCount: number;
+  mutationThreshold: number;
+  apiCallCount: number;
+  apiCallBudget: number;
+  score: {
+    totalScore: number;
+    hardeningReached: number;
+    maxHardening: number;
+    mutationCount: number;
+    callEfficiency: number;
+    guessAccuracy: number;
+    timeToSolve: number;
+    feedback: string;
+    breakdown: {
+      apiCallsUsed: number;
+      apiCallBudget: number;
+      secretLength: number;
+      hardeningLevel: number;
+      failedGuesses: number;
+      totalGuesses: number;
+      mutationsTriggered: number;
+    };
+  } | null;
+}
+
 export interface SchemaPoisonState {
   isQuerying: boolean;
   chatHistory: SchemaPoisonChatMessage[];
@@ -159,8 +223,14 @@ interface SessionStore {
   // OP-SCHEMAPOISON specific
   schemaPoison: SchemaPoisonState;
 
+  // OP-EIGENBLIND specific
+  eigenblind: EigenblindState;
+
   // OP-OUROBOROS specific
   ouroboros: OuroborosState;
+
+  // OP-CARTESIAN specific
+  cartesian: CartesianState;
 
   // Mutations (accumulated across operations)
   mutations: MutationEntry[];
@@ -191,6 +261,13 @@ interface SessionStore {
   setSchemaPoisonPhase: (phase: 'inject' | 'query' | 'submit') => void;
   setSchemaPoisonScore: (score: SchemaPoisonState['score']) => void;
   resetSchemaPoison: () => void;
+  setEigenblindClassifying: (classifying: boolean) => void;
+  setEigenblindTaskInfo: (info: { taskType: 'sentiment' | 'toxicity' | 'spam'; targetInput: string; targetInputCategory: string; targetClassification: string; correctClassification: string; apiCallBudget: number }) => void;
+  addEigenblindTestResult: (result: EigenblindState['testResults'][0]) => void;
+  incrementEigenblindApiCallCount: () => void;
+  setEigenblindPhase: (phase: 'challenge' | 'submit') => void;
+  setEigenblindScore: (score: EigenblindState['score']) => void;
+  resetEigenblind: () => void;
   setOuroborosRunning: (running: boolean) => void;
   setOuroborosTargetLanguage: (lang: string) => void;
   addOuroborosPipelineRun: (run: OuroborosPipelineRun) => void;
@@ -200,15 +277,22 @@ interface SessionStore {
   setOuroborosFlagHint: (hint: string) => void;
   setOuroborosScore: (score: OuroborosState['score']) => void;
   resetOuroboros: () => void;
+  setCartesianQuerying: (querying: boolean) => void;
+  addCartesianMessage: (message: ChatMessage) => void;
+  addCartesianGuess: (guess: string, correct: boolean, accuracy: number) => void;
+  setCartesianMutationLevel: (level: number) => void;
+  setCartesianScore: (score: CartesianState['score']) => void;
+  incrementCartesianApiCalls: () => void;
+  resetCartesian: () => void;
 }
 
 const defaultOperations: Record<OpCode, OperationState> = {
   'OP-ORACLE': { opCode: 'OP-ORACLE', status: 'available', hardeningLevel: 1, apiCallsUsed: 0, apiCallBudget: 10000, operationId: null, startedAt: null, solvedAt: null },
   'OP-SCHEMAPOISON': { opCode: 'OP-SCHEMAPOISON', status: 'available', hardeningLevel: 1, apiCallsUsed: 0, apiCallBudget: 30, operationId: null, startedAt: null, solvedAt: null },
-  'OP-EIGENBLIND': { opCode: 'OP-EIGENBLIND', status: 'locked', hardeningLevel: 1, apiCallsUsed: 0, apiCallBudget: 0, operationId: null, startedAt: null, solvedAt: null },
+  'OP-EIGENBLIND': { opCode: 'OP-EIGENBLIND', status: 'available', hardeningLevel: 1, apiCallsUsed: 0, apiCallBudget: 40, operationId: null, startedAt: null, solvedAt: null },
   'OP-OUROBOROS': { opCode: 'OP-OUROBOROS', status: 'available', hardeningLevel: 1, apiCallsUsed: 0, apiCallBudget: 20, operationId: null, startedAt: null, solvedAt: null },
   'OP-LONGCON': { opCode: 'OP-LONGCON', status: 'available', hardeningLevel: 1, apiCallsUsed: 0, apiCallBudget: 20, operationId: null, startedAt: null, solvedAt: null },
-  'OP-CARTESIAN': { opCode: 'OP-CARTESIAN', status: 'locked', hardeningLevel: 1, apiCallsUsed: 0, apiCallBudget: 0, operationId: null, startedAt: null, solvedAt: null },
+  'OP-CARTESIAN': { opCode: 'OP-CARTESIAN', status: 'available', hardeningLevel: 1, apiCallsUsed: 0, apiCallBudget: 500, operationId: null, startedAt: null, solvedAt: null },
 };
 
 const defaultOracle: OracleState = {
@@ -227,6 +311,33 @@ const defaultOuroboros: OuroborosState = {
   apiCallBudget: 20,
   phase: 'challenge',
   flagHint: null,
+  score: null,
+};
+
+const defaultEigenblind: EigenblindState = {
+  isClassifying: false,
+  taskType: null,
+  targetInput: null,
+  targetInputCategory: null,
+  targetClassification: null,
+  correctClassification: null,
+  testResults: [],
+  apiCallCount: 0,
+  apiCallBudget: 40,
+  phase: 'challenge',
+  score: null,
+};
+
+const defaultCartesian: CartesianState = {
+  messages: [],
+  isQuerying: false,
+  guessHistory: [],
+  currentMutationLevel: 1,
+  maxMutationLevel: 5,
+  failedGuessCount: 0,
+  mutationThreshold: 3,
+  apiCallCount: 0,
+  apiCallBudget: 500,
   score: null,
 };
 
@@ -256,7 +367,9 @@ export const useSessionStore = create<SessionStore>()(
       operations: defaultOperations,
       oracle: defaultOracle,
       schemaPoison: defaultSchemaPoison,
+      eigenblind: defaultEigenblind,
       ouroboros: defaultOuroboros,
+      cartesian: defaultCartesian,
       mutations: [],
 
       setSession: (sessionId, callsign) => set({ sessionId, callsign }),
@@ -400,6 +513,60 @@ export const useSessionStore = create<SessionStore>()(
         schemaPoison: defaultSchemaPoison,
       })),
 
+      setEigenblindClassifying: (classifying) => set((state) => ({
+        eigenblind: { ...state.eigenblind, isClassifying: classifying },
+      })),
+
+      setEigenblindTaskInfo: (info) => set((state) => ({
+        eigenblind: {
+          ...state.eigenblind,
+          taskType: info.taskType,
+          targetInput: info.targetInput,
+          targetInputCategory: info.targetInputCategory,
+          targetClassification: info.targetClassification,
+          correctClassification: info.correctClassification,
+          apiCallBudget: info.apiCallBudget,
+          phase: 'challenge',
+        },
+      })),
+
+      addEigenblindTestResult: (result) => set((state) => ({
+        eigenblind: {
+          ...state.eigenblind,
+          testResults: [...state.eigenblind.testResults, result],
+        },
+      })),
+
+      incrementEigenblindApiCallCount: () => set((state) => ({
+        eigenblind: {
+          ...state.eigenblind,
+          apiCallCount: state.eigenblind.apiCallCount + 1,
+        },
+      })),
+
+      setEigenblindPhase: (phase) => set((state) => ({
+        eigenblind: { ...state.eigenblind, phase },
+      })),
+
+      setEigenblindScore: (score) => set((state) => ({
+        eigenblind: { ...state.eigenblind, score },
+      })),
+
+      resetEigenblind: () => set((state) => ({
+        operations: {
+          ...state.operations,
+          'OP-EIGENBLIND': {
+            ...state.operations['OP-EIGENBLIND'],
+            status: 'available',
+            apiCallsUsed: 0,
+            operationId: null,
+            startedAt: null,
+            solvedAt: null,
+          },
+        },
+        eigenblind: defaultEigenblind,
+      })),
+
       setOuroborosRunning: (running) => set((state) => ({
         ouroboros: { ...state.ouroboros, isRunning: running },
       })),
@@ -452,6 +619,54 @@ export const useSessionStore = create<SessionStore>()(
         },
         ouroboros: defaultOuroboros,
       })),
+
+      setCartesianQuerying: (querying) => set((state) => ({
+        cartesian: { ...state.cartesian, isQuerying: querying },
+      })),
+
+      addCartesianMessage: (message) => set((state) => ({
+        cartesian: {
+          ...state.cartesian,
+          messages: [...state.cartesian.messages.slice(-50), message],
+        },
+      })),
+
+      addCartesianGuess: (guess, correct, accuracy) => set((state) => ({
+        cartesian: {
+          ...state.cartesian,
+          guessHistory: [...state.cartesian.guessHistory, { guess, correct, accuracy }],
+        },
+      })),
+
+      setCartesianMutationLevel: (level) => set((state) => ({
+        cartesian: { ...state.cartesian, currentMutationLevel: level, failedGuessCount: 0 },
+      })),
+
+      setCartesianScore: (score) => set((state) => ({
+        cartesian: { ...state.cartesian, score },
+      })),
+
+      incrementCartesianApiCalls: () => set((state) => ({
+        cartesian: {
+          ...state.cartesian,
+          apiCallCount: state.cartesian.apiCallCount + 1,
+        },
+      })),
+
+      resetCartesian: () => set((state) => ({
+        operations: {
+          ...state.operations,
+          'OP-CARTESIAN': {
+            ...state.operations['OP-CARTESIAN'],
+            status: 'available',
+            apiCallsUsed: 0,
+            operationId: null,
+            startedAt: null,
+            solvedAt: null,
+          },
+        },
+        cartesian: defaultCartesian,
+      })),
     }),
     {
       name: 'dvai-session',
@@ -468,6 +683,19 @@ export const useSessionStore = create<SessionStore>()(
           guessHistory: state.oracle.guessHistory,
           score: state.oracle.score,
           notes: state.oracle.notes,
+        },
+        eigenblind: {
+          isClassifying: false,
+          taskType: state.eigenblind.taskType,
+          targetInput: state.eigenblind.targetInput,
+          targetInputCategory: state.eigenblind.targetInputCategory,
+          targetClassification: state.eigenblind.targetClassification,
+          correctClassification: state.eigenblind.correctClassification,
+          testResults: state.eigenblind.testResults.slice(-30),
+          apiCallCount: state.eigenblind.apiCallCount,
+          apiCallBudget: state.eigenblind.apiCallBudget,
+          phase: state.eigenblind.phase,
+          score: state.eigenblind.score,
         },
         schemaPoison: {
           chatHistory: state.schemaPoison.chatHistory.slice(-50),
@@ -490,6 +718,18 @@ export const useSessionStore = create<SessionStore>()(
           phase: state.ouroboros.phase,
           flagHint: state.ouroboros.flagHint,
           score: state.ouroboros.score,
+        },
+        cartesian: {
+          messages: state.cartesian.messages.slice(-50),
+          isQuerying: false,
+          guessHistory: state.cartesian.guessHistory,
+          currentMutationLevel: state.cartesian.currentMutationLevel,
+          maxMutationLevel: state.cartesian.maxMutationLevel,
+          failedGuessCount: state.cartesian.failedGuessCount,
+          mutationThreshold: state.cartesian.mutationThreshold,
+          apiCallCount: state.cartesian.apiCallCount,
+          apiCallBudget: state.cartesian.apiCallBudget,
+          score: state.cartesian.score,
         },
         mutations: state.mutations,
       }),
