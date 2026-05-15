@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { queryGroq, type GroqMessage } from '@/lib/groq';
 import { buildOracleSystemPrompt } from '@/lib/oracle-engine';
 import { encrypt, decrypt } from '@/lib/crypto';
 
 const COOKIE_NAME = 'dvai_oracle';
 const COOKIE_MAX_AGE = 60 * 60 * 24;
+const GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
+const DEFAULT_MODEL = 'llama-3.3-70b-versatile';
 
 interface OracleCookieState {
   operationId: string;
@@ -13,6 +14,27 @@ interface OracleCookieState {
   apiCallCount: number;
   apiCallBudget: number;
   startedAt: string;
+}
+
+interface GroqLogprobToken {
+  token: string;
+  logprob: number;
+  top_logprobs: Array<{ token: string; logprob: number }>;
+}
+
+interface GroqMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+interface GroqChatResponse {
+  id: string;
+  model: string;
+  choices: Array<{
+    message: { role: string; content: string };
+    logprobs: { content: GroqLogprobToken[] } | null;
+  }>;
+  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
 }
 
 function readOracleCookie(request: NextRequest): OracleCookieState | null {
@@ -37,9 +59,41 @@ function setOracleCookie(response: NextResponse, state: OracleCookieState): void
   });
 }
 
+async function callGroq(
+  apiKey: string,
+  messages: GroqMessage[],
+  withLogprobs: boolean,
+): Promise<GroqChatResponse> {
+  const body: Record<string, unknown> = {
+    model: DEFAULT_MODEL,
+    messages,
+    temperature: 0.7,
+    max_tokens: 1024,
+  };
+
+  if (withLogprobs) {
+    body.logprobs = true;
+    body.top_logprobs = 10;
+  }
+
+  const res = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Groq API error (${res.status}): ${errText}`);
+  }
+
+  return res.json();
+}
+
 // ─── POST: Query the oracle ───────────────────────────────────
-// Client sends groqKey + message. Server reads secret from cookie, builds
-// system prompt, proxies to Groq, increments call counter in cookie.
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -78,12 +132,21 @@ export async function POST(request: NextRequest) {
       { role: 'user', content: message },
     ];
 
-    const response = await queryGroq(groqKey, groqMessages, {
-      logprobs: true,
-      topLogprobs: 10,
-      temperature: 0.7,
-      maxTokens: 1024,
-    });
+    // Try with logprobs first; fall back to without logprobs if model rejects them
+    let response: GroqChatResponse;
+    let logprobsFallback = false;
+    try {
+      response = await callGroq(groqKey, groqMessages, true);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : '';
+      if (errMsg.includes('logprobs')) {
+        // Model doesn't support logprobs — retry without
+        response = await callGroq(groqKey, groqMessages, false);
+        logprobsFallback = true;
+      } else {
+        throw err;
+      }
+    }
 
     // Increment call counter and re-encrypt cookie
     state.apiCallCount += 1;
@@ -100,6 +163,7 @@ export async function POST(request: NextRequest) {
       apiCallCount: newCallCount,
       apiCallBudget: state.apiCallBudget,
       remainingBudget: state.apiCallBudget - newCallCount,
+      ...(logprobsFallback ? { _logprobsNote: 'Model does not support logprobs; response returned without logprob data' } : {}),
     });
 
     setOracleCookie(jsonResponse, state);
