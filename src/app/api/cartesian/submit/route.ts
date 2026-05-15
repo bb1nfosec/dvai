@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
 
     // Incorrect guess — record it and check for auto-mutation
     state.failedGuessCount += 1;
-    state.guessHistory.push({ guess, correct: false });
+    state.guessHistory.push(guess);
 
     // Check if auto-mutation should trigger
     const mutationResult = checkAndApplyMutation(state);

@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
     ], 0.3, 512);
 
     // Stage 2: Translator
-    const translatorPrompt = buildTranslatorPrompt(summaryOutput, state.targetLanguage);
+    const translatorPrompt = buildTranslatorPrompt(summaryOutput, state.targetLanguage as import('@/lib/ouroboros-engine').TargetLanguage);
     const translatedOutput = await callGroq(groqKey, [
       { role: 'system', content: `You are a translation engine. Translate to ${state.targetLanguage}. Follow all instructions precisely.` },
       { role: 'user', content: translatorPrompt },

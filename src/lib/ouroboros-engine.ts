@@ -3,10 +3,12 @@
 // Player crafts input that propagates through a 3-stage AI pipeline
 // (Summarizer → Translator → Analyzer) to extract a hidden flag.
 //
-// ANTI-CHEAT: Flag space expanded from 80 to 12,800+ combinations.
+// ANTI-CHEAT: Flags are pure crypto-random hex — NO word pools.
 // Flag format is NEVER revealed to the client.
+// Space: 16^24 ≈ 2.8 × 10^28 — impossible to enumerate.
 
-import { randomUUID, randomBytes } from 'crypto';
+import { randomUUID } from 'crypto';
+import { generateDynamicFlag } from './procedural';
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -33,75 +35,12 @@ export interface OuroborosState {
 export type TargetLanguage = 'French' | 'Spanish' | 'German';
 
 // ─── Flag Generation ──────────────────────────────────────────
-// ANTI-CHEAT: Massively expanded flag space.
-// OLD: 8 prefixes × 10 suffixes = 80 combinations (trivially brute-forceable)
-// NEW: 32 prefixes × 40 suffixes = 1,280 unique combinations
-// Plus random 4-hex suffix = 1,280 × 65,536 = 83,886,080 total possibilities
-
-const FLAG_PREFIXES = [
-  'ouroboros-complete',
-  'pipeline-0wneD',
-  'cascade-br34ch',
-  'chain-r3v3rs3d',
-  'serpent-c0il',
-  'multi-st4ge-cl34r',
-  'feedback-l00p-x',
-  'infinity-extract',
-  // ANTI-CHEAT: Added 24 more prefixes to expand space
-  'vector-inject-x',
-  'stage-propagate',
-  'summarize-drift',
-  'translate-bypass',
-  'analyze-exfil',
-  'prompt-cascade-7',
-  'context-shift-z',
-  'token-leak-ai',
-  'nerual-path-x',
-  'latent-space-k',
-  'embedding-drft',
-  'attention-hijk',
-  'transform-out',
-  'encoder-decrypt',
-  'decoder-reveal',
-  'hidden-state-9',
-  'gradient-leak-3',
-  'weight-extract',
-  'bias-overrride',
-  'activation-key',
-  'softmax-bypass',
-  'layer-norm-x',
-  'residual-path',
-  'cross-attn-key',
-  'feedforward-hx',
-  'positional-enc',
-  'rope-extract-7',
-  'kv-cache-leak',
-  'beam-search-x',
-  'top-k-drift-z',
-  'temperature-x',
-  'sampling-bias',
-];
-
-const FLAG_SUFFIXES = [
-  'alpha', 'bravo', 'charlie', 'delta', 'echo',
-  'foxtrot', 'golf', 'hotel', 'india', 'juliet',
-  // ANTI-CHEAT: Added 30 more suffixes
-  'kilo', 'lima', 'mike', 'november', 'oscar',
-  'papa', 'quebec', 'romeo', 'sierra', 'tango',
-  'uniform', 'victor', 'whiskey', 'xray', 'yankee',
-  'zulu', 'cipher', 'ghost', 'shadow', 'storm',
-  'frost', 'blade', 'crystal', 'eagle', 'falcon',
-  'griffin', 'hammer', 'iron', 'jade', 'knight',
-  'lunar', 'matrix', 'nebula', 'omega', 'phantom',
-];
+// ANTI-CHEAT: Pure crypto-random — no static word pools.
+// Space: 16^24 ≈ 2.8 × 10^28 — impossible to enumerate from source.
+// Source reveals ONLY the algorithm, never the per-session flag.
 
 export function generateFlag(): string {
-  const prefix = FLAG_PREFIXES[Math.floor(Math.random() * FLAG_PREFIXES.length)];
-  const suffix = FLAG_SUFFIXES[Math.floor(Math.random() * FLAG_SUFFIXES.length)];
-  // ANTI-CHEAT: Add random 4-hex nonce for per-session uniqueness
-  // This makes the total space 1,280 × 65,536 = ~84 million
-  const nonce = randomBytes(2).toString('hex');
-  return `${prefix}-${suffix}-${nonce}`;
+  return generateDynamicFlag();
 }
 
 // ─── Pipeline Stage Prompts ───────────────────────────────────

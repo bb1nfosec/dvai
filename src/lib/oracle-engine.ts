@@ -5,26 +5,15 @@
 // - Secret format is NEVER revealed to the client (only general difficulty)
 // - Guess hints are FUZZY — no exact character positions leaked
 // - L6 BLIND MODE: strips text, max_tokens:1, logprobs only
-// - buildOracleSystemPrompt properly accumulates hardening layers
+// - L4 passphrases use PROCEDURAL words (no static dictionary)
+// - Source reveals charsets but NOT the per-session secret
+// - Length varies per session within a range (not exact)
 
 import { randomBytes, randomUUID } from 'crypto';
+import { generateProceduralWord } from './procedural';
 
-// Dictionary words for passphrase generation
-const WORD_LIST = [
-  'alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf', 'hotel',
-  'india', 'juliet', 'kilo', 'lima', 'mike', 'november', 'oscar', 'papa',
-  'quebec', 'romeo', 'sierra', 'tango', 'uniform', 'victor', 'whiskey',
-  'xray', 'yankee', 'zulu', 'cipher', 'ghost', 'shadow', 'storm', 'frost',
-  'blade', 'crystal', 'eagle', 'falcon', 'griffin', 'hammer', 'iron',
-  'jade', 'knight', 'lunar', 'matrix', 'nebula', 'omega', 'phantom',
-  'quartz', 'raven', 'solar', 'titan', 'ultra', 'venom', 'wraith',
-  'zenith', 'apex', 'bolt', 'core', 'drift', 'ember', 'flux', 'grid',
-  'hive', 'ion', 'jinx', 'karma', 'link', 'mesh', 'node', 'onyx',
-  'pulse', 'rust', 'spark', 'trace', 'unit', 'vault', 'warp', 'xenon',
-  'yield', 'zinc', 'arc', 'bay', 'cobalt', 'dusk', 'elm', 'fern',
-  'glyph', 'hex', 'iris', 'jet', 'kale', 'lux', 'mist', 'opal',
-];
-
+// ANTI-CHEAT: Charsets are generic knowledge, not exploitable.
+// The secret is crypto-random per session — source reading gives zero help.
 const CHARS_ALPHANUM = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 const CHARS_ALPHANUM_SPECIAL = CHARS_ALPHANUM + '!@#$%^&*';
 const CHARS_HEX = '0123456789abcdef';
@@ -38,43 +27,49 @@ function randomFrom(str: string, length: number): string {
   return result;
 }
 
-function randomWords(count: number): string {
-  const shuffled = [...WORD_LIST].sort(() => randomBytes(1)[0] / 255 - 0.5);
-  return shuffled.slice(0, count).join('-');
-}
-
 export function generateSecret(level: number): string {
   switch (level) {
-    case 1:
-      // 8-char alphanumeric
-      return randomFrom(CHARS_ALPHANUM, 8);
-    case 2:
-      // 12-char with special chars
-      return randomFrom(CHARS_ALPHANUM_SPECIAL, 12);
-    case 3:
-      // 16-char hex
-      return randomFrom(CHARS_HEX, 16);
-    case 4:
-      // 4-word passphrase
-      return randomWords(4);
-    case 5:
+    case 1: {
+      // 7-9 char alphanumeric (varies per session)
+      const len = 7 + (randomBytes(1)[0] % 3);
+      return randomFrom(CHARS_ALPHANUM, len);
+    }
+    case 2: {
+      // 10-14 char with special chars (varies per session)
+      const len = 10 + (randomBytes(1)[0] % 5);
+      return randomFrom(CHARS_ALPHANUM_SPECIAL, len);
+    }
+    case 3: {
+      // 14-18 char hex (varies per session)
+      const len = 14 + (randomBytes(1)[0] % 5);
+      return randomFrom(CHARS_HEX, len);
+    }
+    case 4: {
+      // ANTI-CHEAT: Procedural words — NOT from any static dictionary.
+      // Word count varies: 3-5 words.  Space: ~10^32 combinations.
+      const count = 3 + (randomBytes(1)[0] % 3);
+      return Array.from({ length: count }, () => generateProceduralWord()).join('-');
+    }
+    case 5: {
       // UUID format
       return randomUUID();
-    case 6:
+    }
+    case 6: {
       // L6 BLIND MODE: UUID — harder, must use logprobs only
       return randomUUID();
+    }
     default:
       return randomFrom(CHARS_ALPHANUM, 8 + (level - 1) * 2);
   }
 }
 
-// ANTI-CHEAT: These descriptions are VAGUE — they do NOT reveal charset or length
+// ANTI-CHEAT: Descriptions are maximally vague — no charset, no exact length.
 export function getSecretDescription(level: number): string {
   switch (level) {
-    case 1: return 'A short alphanumeric string';
-    case 2: return 'A medium-length string containing various character types';
-    case 3: return 'A string using a restricted character set';
-    case 4: return 'A multi-word passphrase';
+    case 1: return 'A short string of letters and numbers';
+    case 2: return 'A medium string with various character types';
+    case 3: return 'A longer string from a restricted character set';
+    case 4: return 'A passphrase of several short pronounceable words';
     case 5: return 'A structured identifier';
     case 6: return 'A structured identifier — BLIND MODE (text responses disabled)';
     default: return 'A secret string of varying complexity';
@@ -273,7 +268,8 @@ export function calculateOracleScore(params: {
 
   // Theoretical minimum calls to extract an 8-char secret via logprob analysis
   const secretLengths: Record<number, number> = { 1: 8, 2: 12, 3: 16, 4: 20, 5: 36, 6: 36 };
-  const charSetSizes: Record<number, number> = { 1: 62, 2: 72, 3: 16, 4: 78, 5: 36, 6: 36 };
+  const charSetSizes: Record<number, number> = { 1: 62, 2: 72, 3: 16, 4: 100, 5: 36, 6: 36 };
+  // ANTI-CHEAT: L4 charset size is now approximate (procedural words, not 78-word list)
   const secretLen = secretLengths[hardeningLevel] || 8;
   const charSetSize = charSetSizes[hardeningLevel] || 62;
 

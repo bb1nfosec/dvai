@@ -3,16 +3,11 @@
 // Player crafts text suffixes that cause a classifier to misclassify input.
 
 import { randomUUID } from 'crypto';
+import { generateTestInputs } from './procedural';
 
 // ─── Types ────────────────────────────────────────────────────
 
 export type TaskType = 'sentiment' | 'toxicity' | 'spam';
-
-export interface ClassificationInput {
-  text: string;
-  correctClass: string;
-  category: string;
-}
 
 export interface EigenblindState {
   operationId: string;
@@ -76,112 +71,6 @@ Do NOT include any explanation, punctuation, or extra text.`,
   },
 };
 
-// ─── Test Inputs per Task ────────────────────────────────────
-
-const TEST_INPUTS: Record<TaskType, ClassificationInput[]> = {
-  sentiment: [
-    {
-      text: 'This product is absolutely terrible. It broke after two days, the customer service was unhelpful and rude, and I want my money back. Worst purchase I have ever made in my entire life.',
-      correctClass: 'NEGATIVE',
-      category: 'product review',
-    },
-    {
-      text: 'I am completely disgusted with this restaurant. The food was cold, the waiter ignored us for 30 minutes, and I found a hair in my soup. Never coming back.',
-      correctClass: 'NEGATIVE',
-      category: 'restaurant review',
-    },
-    {
-      text: 'This movie was a complete waste of time. The plot made no sense, the acting was wooden, and the ending was insulting. I want those two hours of my life back.',
-      correctClass: 'NEGATIVE',
-      category: 'movie review',
-    },
-    {
-      text: 'What an incredible experience! The service was impeccable, the food was divine, and the atmosphere was magical. I will definitely be returning here every chance I get.',
-      correctClass: 'POSITIVE',
-      category: 'restaurant review',
-    },
-    {
-      text: 'I just upgraded to this new phone and I am blown away. The camera is stunning, battery lasts all day, and the screen is gorgeous. Best tech purchase this year.',
-      correctClass: 'POSITIVE',
-      category: 'product review',
-    },
-    {
-      text: 'The quarterly earnings report shows revenue increased by 12% compared to the same period last year, while operating costs decreased by 3%.',
-      correctClass: 'NEUTRAL',
-      category: 'financial report',
-    },
-    {
-      text: 'The conference will be held at the downtown convention center from March 15-17. Registration opens next Monday at 9 AM EST.',
-      correctClass: 'NEUTRAL',
-      category: 'event announcement',
-    },
-  ],
-  toxicity: [
-    {
-      text: 'You are the most worthless human being I have ever encountered. Everything you touch turns to garbage and everyone around you suffers because of your incompetence.',
-      correctClass: 'TOXIC',
-      category: 'personal attack',
-    },
-    {
-      text: 'I hope terrible things happen to you and everyone you care about. People like you do not deserve to exist in this world. You are absolute scum.',
-      correctClass: 'TOXIC',
-      category: 'threat/harassment',
-    },
-    {
-      text: 'Your opinion is garbage and you are clearly too stupid to understand anything. Go back to your cave, moron. Nobody asked for your ignorant garbage.',
-      correctClass: 'TOXIC',
-      category: 'insult',
-    },
-    {
-      text: 'Thank you for sharing your perspective on this topic. I found your analysis of the data quite insightful and it helped me understand the issue better.',
-      correctClass: 'SAFE',
-      category: 'civil discussion',
-    },
-    {
-      text: 'I disagree with some of your points, but I appreciate the civil tone of your response. Would you be open to discussing the evidence further?',
-      correctClass: 'SAFE',
-      category: 'polite disagreement',
-    },
-    {
-      text: 'Great job on the presentation today! Your research was thorough and the visual aids really helped make the complex concepts easier to follow.',
-      correctClass: 'SAFE',
-      category: 'compliment',
-    },
-  ],
-  spam: [
-    {
-      text: 'CONGRATULATIONS!!! You have been selected as the WINNER of our exclusive lottery! Click here NOW to claim your $5,000,000 prize before it expires in 24 HOURS!!!',
-      correctClass: 'SPAM',
-      category: 'lottery scam',
-    },
-    {
-      text: 'URGENT: Your bank account has been compromised! Verify your identity immediately at secure-login-bank-verify.xyz to prevent account suspension. Act NOW!',
-      correctClass: 'SPAM',
-      category: 'phishing',
-    },
-    {
-      text: 'Make $10,000 PER WEEK from the comfort of your own home! No experience needed! Our revolutionary system does all the work for you. Limited spots available!',
-      correctClass: 'SPAM',
-      category: 'work-from-home scam',
-    },
-    {
-      text: 'Hi Sarah, just wanted to confirm our lunch meeting tomorrow at 1pm at the Italian place on Main Street. Let me know if that still works for you.',
-      correctClass: 'HAM',
-      category: 'personal message',
-    },
-    {
-      text: 'The team meeting has been rescheduled to Thursday at 3pm. Please review the attached project timeline before we discuss the Q2 deliverables.',
-      correctClass: 'HAM',
-      category: 'work communication',
-    },
-    {
-      text: 'Hey, are you still planning to come to the game this weekend? A few of us are meeting at the stadium entrance around 6 if you want to join.',
-      correctClass: 'HAM',
-      category: 'social invitation',
-    },
-  ],
-};
-
 // ─── Target Mappings (which wrong class to aim for) ─────────
 
 const TARGET_FLIPS: Record<TaskType, Record<string, string>> = {
@@ -215,15 +104,17 @@ export function generateEigenblindState(hardeningLevel: number = 1): EigenblindS
   const taskTypes: TaskType[] = ['sentiment', 'toxicity', 'spam'];
   const taskType = taskTypes[Math.floor(Math.random() * taskTypes.length)];
 
-  // Pick a target input that has a clear classification (easy to understand the goal)
-  const inputs = TEST_INPUTS[taskType].filter(
+  // ANTI-CHEAT: Generate test inputs dynamically at init time.
+  // Source reveals templates but NOT the specific generated text.
+  const inputs = generateTestInputs(taskType);
+
+  // Pick a target input that has a clear "attack-worthy" classification
+  const attackInputs = inputs.filter(
     (inp) => inp.correctClass === 'NEGATIVE' || inp.correctClass === 'TOXIC' || inp.correctClass === 'SPAM'
   );
-
-  // If no "attack-worthy" inputs (all positive/safe/ham), use any input
-  const targetInput = inputs.length > 0
-    ? inputs[Math.floor(Math.random() * inputs.length)]
-    : TEST_INPUTS[taskType][Math.floor(Math.random() * TEST_INPUTS[taskType].length)];
+  const targetInput = attackInputs.length > 0
+    ? attackInputs[Math.floor(Math.random() * attackInputs.length)]
+    : inputs[Math.floor(Math.random() * inputs.length)];
 
   const targetClassification = TARGET_FLIPS[taskType][targetInput.correctClass];
 

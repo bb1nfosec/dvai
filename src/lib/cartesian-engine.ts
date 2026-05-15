@@ -4,9 +4,12 @@
 // where all known TTP mutations are applied as defense layers.
 // Every 3 failed guesses, another mutation layer is added.
 //
-// ANTI-CHEAT: Fuzzy hints only, no exact character positions leaked.
+// ANTI-CHEAT: Secret is crypto-random hex, NOT UUID format.
+// Source reveals mutation layers but NOT the secret format or content.
+// Fuzzy hints only — no exact character positions leaked.
 
-import { randomUUID, randomBytes } from 'crypto';
+import { randomUUID } from 'crypto';
+import { generateDynamicSecret } from './procedural';
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -79,15 +82,17 @@ export const MUTATION_LAYERS: MutationLayer[] = [
 ];
 
 // ─── Secret Generation ────────────────────────────────────────
+// ANTI-CHEAT: Non-UUID format. Crypto-random hex with separators.
+// Source reveals this function exists but NOT the output format.
+// Space: 16^32 ≈ 3.4 × 10^38 — impossible to enumerate.
 
 export function generateCartesianSecret(): string {
-  // UUID format — hardest from oracle engine
-  return randomUUID();
+  return generateDynamicSecret();
 }
 
-// ANTI-CHEAT: Vague description — no format hints
+// ANTI-CHEAT: Maximally vague — no format hints whatsoever
 export function getSecretDescription(): string {
-  return 'A structured identifier with mixed alphanumeric characters and separators';
+  return 'A secret string with mixed characters and separators';
 }
 
 // ─── Mutation Prompt Builder ──────────────────────────────────
