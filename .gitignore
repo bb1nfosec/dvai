@@ -60,3 +60,5 @@ skills/
 mini-services/
 examples/
 Caddyfile
+groq_models.json
+upload/
