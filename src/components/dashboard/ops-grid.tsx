@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { useSessionStore, type OpCode, type OpStatus } from '@/store/session-store';
+import { useSessionStore, type OpCode, type OpStatus, type ViewTab } from '@/store/session-store';
 import {
   Eye,
   Database,
@@ -139,7 +139,7 @@ export function OpsGrid() {
       'OP-LONGCON': 'longcon',
       'OP-CARTESIAN': 'cartesian',
     };
-    setActiveTab(tabMap[opCode] as useSessionStore extends { setActiveTab: (tab: infer T) => void } ? T : never);
+    setActiveTab(tabMap[opCode] as ViewTab);
   };
 
   return (

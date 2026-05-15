@@ -1,53 +1,27 @@
-import { db } from '@/lib/db';
-import { Prisma } from '@prisma/client';
+// KV abstraction — stub for now.
+// In production on Vercel, swap implementations with @vercel/kv.
+// Currently unused by any active route (mutations are client-side in Zustand).
 
-// Lightweight KV abstraction backed by SQLite (simulates Vercel KV for local dev)
-// In production on Vercel, swap this with @vercel/kv
-
-export async function kvGet(key: string): Promise<string | null> {
-  const entry = await db.kVStore.findUnique({ where: { key } });
-  return entry?.value ?? null;
+export async function kvGet(_key: string): Promise<string | null> {
+  return null;
 }
 
-export async function kvSet(key: string, value: string, ttlSeconds?: number): Promise<void> {
-  await db.kVStore.upsert({
-    where: { key },
-    update: { value, expiresAt: ttlSeconds ? new Date(Date.now() + ttlSeconds * 1000) : null },
-    create: { key, value, expiresAt: ttlSeconds ? new Date(Date.now() + ttlSeconds * 1000) : null },
-  });
+export async function kvSet(_key: string, _value: string, _ttlSeconds?: number): Promise<void> {
+  // no-op
 }
 
-export async function kvDelete(key: string): Promise<void> {
-  try {
-    await db.kVStore.delete({ where: { key } });
-  } catch {
-    // Key may not exist
-  }
+export async function kvDelete(_key: string): Promise<void> {
+  // no-op
 }
 
-export async function kvKeys(pattern: string): Promise<string[]> {
-  // SQLite LIKE pattern: % = wildcard
-  const sqlPattern = pattern.replace(/\*/g, '%');
-  const entries = await db.kVStore.findMany({
-    where: {
-      key: { contains: sqlPattern.replace(/%/g, '') },
-      expiresAt: { or: [{ equals: null }, { gt: new Date() }] },
-    },
-    select: { key: true },
-  });
-  return entries.map(e => e.key);
+export async function kvKeys(_pattern: string): Promise<string[]> {
+  return [];
 }
 
-export async function kvGetJSON<T>(key: string): Promise<T | null> {
-  const val = await kvGet(key);
-  if (!val) return null;
-  try {
-    return JSON.parse(val) as T;
-  } catch {
-    return null;
-  }
+export async function kvGetJSON<T>(_key: string): Promise<T | null> {
+  return null;
 }
 
-export async function kvSetJSON(key: string, value: unknown, ttlSeconds?: number): Promise<void> {
-  await kvSet(key, JSON.stringify(value), ttlSeconds);
+export async function kvSetJSON(_key: string, _value: unknown, _ttlSeconds?: number): Promise<void> {
+  // no-op
 }

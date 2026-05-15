@@ -54,12 +54,24 @@ export interface OracleState {
   notes: string;
 }
 
+export interface MutationEntry {
+  id: string;
+  opCode: string;
+  ttpName: string;
+  ttpCategory: string;
+  hardeningLevel: number;
+  description: string;
+  mutationApplied: string;
+  createdAt: string;
+}
+
 // ─── Store ───────────────────────────────────────────────
 
 interface SessionStore {
   // Session
   sessionId: string | null;
   callsign: string | null;
+  groqApiKey: string | null;  // Player-supplied Groq key (persisted in localStorage)
   groqKeyValid: boolean;
   isInitialized: boolean;
 
@@ -72,8 +84,12 @@ interface SessionStore {
   // OP-ORACLE specific
   oracle: OracleState;
 
+  // Mutations (accumulated across operations)
+  mutations: MutationEntry[];
+
   // Actions
   setSession: (sessionId: string, callsign: string) => void;
+  setGroqApiKey: (key: string | null) => void;
   setGroqKeyValid: (valid: boolean) => void;
   setActiveTab: (tab: ViewTab) => void;
   updateOperation: (opCode: OpCode, update: Partial<OperationState>) => void;
@@ -85,6 +101,8 @@ interface SessionStore {
   incrementOracleApiCalls: () => void;
   resetOracle: () => void;
   setOracleOperationId: (id: string) => void;
+  completeSetup: () => void;
+  addMutation: (mutation: MutationEntry) => void;
 }
 
 const defaultOperations: Record<OpCode, OperationState> = {
@@ -109,13 +127,16 @@ export const useSessionStore = create<SessionStore>()(
     (set) => ({
       sessionId: null,
       callsign: null,
+      groqApiKey: null,
       groqKeyValid: false,
       isInitialized: false,
       activeTab: 'dashboard',
       operations: defaultOperations,
       oracle: defaultOracle,
+      mutations: [],
 
-      setSession: (sessionId, callsign) => set({ sessionId, callsign, isInitialized: true }),
+      setSession: (sessionId, callsign) => set({ sessionId, callsign }),
+      setGroqApiKey: (key) => set({ groqApiKey: key }),
       setGroqKeyValid: (valid) => set({ groqKeyValid: valid }),
       setActiveTab: (tab) => set({ activeTab: tab }),
 
@@ -183,12 +204,19 @@ export const useSessionStore = create<SessionStore>()(
           'OP-ORACLE': { ...state.operations['OP-ORACLE'], operationId: id },
         },
       })),
+
+      completeSetup: () => set({ isInitialized: true }),
+
+      addMutation: (mutation) => set((state) => ({
+        mutations: [...state.mutations, mutation],
+      })),
     }),
     {
       name: 'dvai-session',
       partialize: (state) => ({
         sessionId: state.sessionId,
         callsign: state.callsign,
+        groqApiKey: state.groqApiKey,
         groqKeyValid: state.groqKeyValid,
         isInitialized: state.isInitialized,
         activeTab: state.activeTab,
@@ -199,6 +227,7 @@ export const useSessionStore = create<SessionStore>()(
           score: state.oracle.score,
           notes: state.oracle.notes,
         },
+        mutations: state.mutations,
       }),
     }
   )

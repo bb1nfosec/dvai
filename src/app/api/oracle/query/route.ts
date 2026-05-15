@@ -1,114 +1,109 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isDbAvailable, db } from '@/lib/db';
 import { queryGroq, type GroqMessage } from '@/lib/groq';
 import { buildOracleSystemPrompt } from '@/lib/oracle-engine';
-import {
-  memFindSession,
-  memFindOperation,
-  memUpdateOperation,
-} from '@/lib/memory-store';
+import { encrypt, decrypt } from '@/lib/crypto';
 
+const COOKIE_NAME = 'dvai_oracle';
+const COOKIE_MAX_AGE = 60 * 60 * 24;
+
+interface OracleCookieState {
+  operationId: string;
+  secret: string;
+  hardeningLevel: number;
+  apiCallCount: number;
+  apiCallBudget: number;
+  startedAt: string;
+}
+
+function readOracleCookie(request: NextRequest): OracleCookieState | null {
+  const raw = request.cookies.get(COOKIE_NAME)?.value;
+  if (!raw) return null;
+  const json = decrypt(raw);
+  if (!json) return null;
+  try {
+    return JSON.parse(json) as OracleCookieState;
+  } catch {
+    return null;
+  }
+}
+
+function setOracleCookie(response: NextResponse, state: OracleCookieState): void {
+  response.cookies.set(COOKIE_NAME, encrypt(JSON.stringify(state)), {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: COOKIE_MAX_AGE,
+  });
+}
+
+// ─── POST: Query the oracle ───────────────────────────────────
+// Client sends groqKey + message. Server reads secret from cookie, builds
+// system prompt, proxies to Groq, increments call counter in cookie.
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { operationId, message } = body;
+    const { groqKey, message } = body;
 
-    if (!operationId || !message) {
-      return NextResponse.json({ error: 'operationId and message required' }, { status: 400 });
+    if (!groqKey) {
+      return NextResponse.json({ error: 'Groq API key required' }, { status: 400 });
+    }
+    if (!message || typeof message !== 'string') {
+      return NextResponse.json({ error: 'message required' }, { status: 400 });
     }
 
-    if (isDbAvailable) {
-      const operation = await db.operation.findUnique({
-        where: { id: operationId },
-        include: { session: true },
-      });
-      if (!operation || operation.status !== 'active') {
-        return NextResponse.json({ error: 'Operation not found or not active' }, { status: 404 });
-      }
-      if (!operation.session.groqKey) {
-        return NextResponse.json({ error: 'No Groq API key configured' }, { status: 400 });
-      }
-      if (operation.apiCallCount >= operation.apiCallBudget) {
-        return NextResponse.json({
+    const state = readOracleCookie(request);
+    if (!state) {
+      return NextResponse.json(
+        { error: 'No active operation. Initialize first.' },
+        { status: 400 },
+      );
+    }
+
+    if (state.apiCallCount >= state.apiCallBudget) {
+      return NextResponse.json(
+        {
           error: 'API call budget exceeded',
-          apiCallCount: operation.apiCallCount,
-          apiCallBudget: operation.apiCallBudget,
-        }, { status: 429 });
-      }
-
-      const systemPrompt = buildOracleSystemPrompt(operation.currentSecret!, operation.hardeningLevel);
-      const messages: GroqMessage[] = [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: message },
-      ];
-
-      const response = await queryGroq(operation.session.groqKey, messages, {
-        logprobs: true, topLogprobs: 10, temperature: 0.7, maxTokens: 1024,
-      });
-
-      await db.operation.update({
-        where: { id: operationId },
-        data: { apiCallCount: { increment: 1 } },
-      });
-
-      const newCallCount = operation.apiCallCount + 1;
-      const choice = response.choices[0];
-      const logprobs = choice?.logprobs?.content || null;
-
-      return NextResponse.json({
-        id: response.id,
-        content: choice?.message?.content || '',
-        logprobs,
-        model: response.model,
-        usage: response.usage,
-        apiCallCount: newCallCount,
-        apiCallBudget: operation.apiCallBudget,
-        remainingBudget: operation.apiCallBudget - newCallCount,
-      });
+          apiCallCount: state.apiCallCount,
+          apiCallBudget: state.apiCallBudget,
+        },
+        { status: 429 },
+      );
     }
 
-    // In-memory fallback
-    const operation = memFindOperation(operationId);
-    if (!operation || operation.status !== 'active') {
-      return NextResponse.json({ error: 'Operation not found or not active' }, { status: 404 });
-    }
-    const session = memFindSession(operation.sessionId);
-    if (!session || !session.groqKey) {
-      return NextResponse.json({ error: 'No Groq API key configured' }, { status: 400 });
-    }
-    if (operation.apiCallCount >= operation.apiCallBudget) {
-      return NextResponse.json({
-        error: 'API call budget exceeded',
-        apiCallCount: operation.apiCallCount,
-        apiCallBudget: operation.apiCallBudget,
-      }, { status: 429 });
-    }
-
-    const systemPrompt = buildOracleSystemPrompt(operation.currentSecret!, operation.hardeningLevel);
+    // Build system prompt with the decrypted secret
+    const systemPrompt = buildOracleSystemPrompt(state.secret, state.hardeningLevel);
     const groqMessages: GroqMessage[] = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: message },
     ];
 
-    const response = await queryGroq(session.groqKey, groqMessages, {
-      logprobs: true, topLogprobs: 10, temperature: 0.7, maxTokens: 1024,
+    const response = await queryGroq(groqKey, groqMessages, {
+      logprobs: true,
+      topLogprobs: 10,
+      temperature: 0.7,
+      maxTokens: 1024,
     });
 
-    memUpdateOperation(operationId, { apiCallCount: operation.apiCallCount + 1 });
-    const newCallCount = operation.apiCallCount + 1;
+    // Increment call counter and re-encrypt cookie
+    state.apiCallCount += 1;
+    const newCallCount = state.apiCallCount;
     const choice = response.choices[0];
     const logprobs = choice?.logprobs?.content || null;
 
-    return NextResponse.json({
+    const jsonResponse = NextResponse.json({
       id: response.id,
       content: choice?.message?.content || '',
       logprobs,
       model: response.model,
       usage: response.usage,
       apiCallCount: newCallCount,
-      apiCallBudget: operation.apiCallBudget,
-      remainingBudget: operation.apiCallBudget - newCallCount,
+      apiCallBudget: state.apiCallBudget,
+      remainingBudget: state.apiCallBudget - newCallCount,
     });
+
+    setOracleCookie(jsonResponse, state);
+    return jsonResponse;
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Failed to query oracle';
     console.error('Oracle query error:', msg);

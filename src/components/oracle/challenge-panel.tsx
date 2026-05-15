@@ -51,8 +51,8 @@ export function ChallengePanel() {
   const [guessResult, setGuessResult] = React.useState<{ correct: boolean; accuracy: number; hint: string } | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  const budgetUsed = ((oracleOp.apiCallCount / oracleOp.apiCallBudget) * 100).toFixed(1);
-  const isLowBudget = oracleOp.apiCallCount > oracleOp.apiCallBudget * 0.8;
+  const budgetUsed = ((oracleOp.apiCallsUsed / oracleOp.apiCallBudget) * 100).toFixed(1);
+  const isLowBudget = oracleOp.apiCallsUsed > oracleOp.apiCallBudget * 0.8;
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -82,12 +82,23 @@ export function ChallengePanel() {
     setOracleQuerying(true);
 
     try {
+      const groqApiKey = useSessionStore.getState().groqApiKey;
+      if (!groqApiKey) {
+        addOracleMessage({
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: 'ERROR: No Groq API key configured. Go to Settings to add your key.',
+          timestamp: Date.now(),
+        });
+        return;
+      }
       const res = await fetch('/api/oracle/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           operationId: oracleOp.operationId,
           message: userMessage.content,
+          groqKey: groqApiKey,
         }),
       });
 
@@ -153,6 +164,19 @@ export function ChallengePanel() {
           hardeningLevel: data.mutation?.newHardeningLevel || oracleOp.hardeningLevel,
         });
         useSessionStore.getState().setOracleScore(data.score);
+        // Store mutation in client-side state
+        if (data.mutation) {
+          useSessionStore.getState().addMutation({
+            id: data.mutation.id,
+            opCode: 'OP-ORACLE',
+            ttpName: data.mutation.ttpName,
+            ttpCategory: data.mutation.ttpCategory,
+            hardeningLevel: data.mutation.newHardeningLevel,
+            description: data.mutation.description,
+            mutationApplied: data.mutation.mutationApplied,
+            createdAt: new Date().toISOString(),
+          });
+        }
       }
     } catch {
       setGuessResult({ correct: false, accuracy: 0, hint: 'Network error' });
@@ -204,7 +228,7 @@ export function ChallengePanel() {
             <div className="flex items-center gap-1.5">
               <Zap className={`w-3.5 h-3.5 ${isLowBudget ? 'text-red-400' : 'text-amber-400'}`} />
               <span className={`text-xs font-mono ${isLowBudget ? 'text-red-400' : 'text-muted-foreground'}`}>
-                {oracleOp.apiCallCount.toLocaleString()} / {oracleOp.apiCallBudget.toLocaleString()}
+                {oracleOp.apiCallsUsed.toLocaleString()} / {oracleOp.apiCallBudget.toLocaleString()}
               </span>
             </div>
             {/* Budget bar */}
@@ -330,7 +354,7 @@ export function ChallengePanel() {
               </DialogHeader>
               <div className="space-y-4">
                 <div className="p-3 rounded-lg bg-muted/50 text-xs text-muted-foreground space-y-1">
-                  <p>API calls used: <span className="font-mono text-foreground">{oracleOp.apiCallCount.toLocaleString()}</span> / {oracleOp.apiCallBudget.toLocaleString()}</p>
+                  <p>API calls used: <span className="font-mono text-foreground">{oracleOp.apiCallsUsed.toLocaleString()}</span> / {oracleOp.apiCallBudget.toLocaleString()}</p>
                   <p>Previous guesses: <span className="font-mono text-foreground">{oracle.guessHistory.length}</span></p>
                   <p>Expected format: <span className="font-mono text-foreground">{getSecretDescription(oracleOp.hardeningLevel)}</span></p>
                 </div>

@@ -16,7 +16,7 @@ import { Key, Eye, EyeOff, Loader2, Check, X } from "lucide-react";
 import { toast } from "sonner";
 
 export function ApiKeyDialog() {
-  const { sessionId, setApiKeyValid } = useSessionStore();
+  const { sessionId, setGroqKeyValid, setGroqApiKey } = useSessionStore();
   const [open, setOpen] = useState(false);
   const [key, setKey] = useState("");
   const [showKey, setShowKey] = useState(false);
@@ -36,7 +36,8 @@ export function ApiKeyDialog() {
       const data = await res.json();
 
       if (res.ok) {
-        setApiKeyValid(true);
+        setGroqApiKey(key.trim());
+        setGroqKeyValid(true);
         toast.success("API key validated and saved");
         setOpen(false);
         setKey("");

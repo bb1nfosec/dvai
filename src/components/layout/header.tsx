@@ -21,10 +21,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 export function Header() {
-  const { callsign, groqKeyValid, sessionId } = useSessionStore();
-  const [setupOpen, setSetupOpen] = useState(false);
+  const { callsign, groqKeyValid, sessionId, isInitialized } = useSessionStore();
 
-  if (!callsign || !sessionId) {
+  if (!isInitialized) {
     return <SessionSetupDialog />;
   }
 
@@ -59,7 +58,7 @@ export function Header() {
 }
 
 function SessionSetupDialog() {
-  const { setSession, isInitialized } = useSessionStore();
+  const { setSession, setGroqApiKey, completeSetup } = useSessionStore();
   const [inputCallsign, setInputCallsign] = useState('');
   const [inputKey, setInputKey] = useState('');
   const [loading, setLoading] = useState(false);
@@ -80,6 +79,7 @@ function SessionSetupDialog() {
         setError(data.error || 'Failed to create session');
         return;
       }
+      // Set session data but DON'T complete setup yet (need API key next)
       setSession(data.id, data.callsign);
       setStep('apikey');
     } catch {
@@ -96,20 +96,25 @@ function SessionSetupDialog() {
       const res = await fetch('/api/session', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, groqKey: inputKey }),
+        body: JSON.stringify({ groqKey: inputKey }),
       });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || 'Invalid API key');
         return;
       }
+      setGroqApiKey(inputKey);
       useSessionStore.getState().setGroqKeyValid(true);
-      setSetupOpen(false);
+      completeSetup();
     } catch {
       setError('Network error');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSkip = () => {
+    completeSetup();
   };
 
   return (
@@ -176,7 +181,7 @@ function SessionSetupDialog() {
               </Button>
               <Button
                 variant="ghost"
-                onClick={() => setSetupOpen(false)}
+                onClick={handleSkip}
                 className="w-full text-muted-foreground text-xs"
               >
                 Skip for now (limited functionality)
@@ -194,26 +199,26 @@ function SessionSetupDialog() {
 }
 
 function SettingsDialog() {
-  const { sessionId, groqKeyValid, setGroqKeyValid } = useSessionStore();
+  const { groqKeyValid, setGroqKeyValid, setGroqApiKey } = useSessionStore();
   const [inputKey, setInputKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const handleUpdateKey = async () => {
-    if (!sessionId) return;
     setLoading(true);
     setError('');
     try {
       const res = await fetch('/api/session', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, groqKey: inputKey }),
+        body: JSON.stringify({ groqKey: inputKey }),
       });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || 'Invalid key');
         return;
       }
+      setGroqApiKey(inputKey);
       setGroqKeyValid(true);
       setInputKey('');
     } catch {
@@ -241,10 +246,7 @@ function SettingsDialog() {
           <div className="space-y-2">
             <Label className="text-xs">Groq API Key</Label>
             <div className="flex items-center gap-2">
-              <div className={cn(
-                'w-2 h-2 rounded-full',
-                groqKeyValid ? 'bg-green-500' : 'bg-red-500'
-              )} />
+              <div className={`w-2 h-2 rounded-full ${groqKeyValid ? 'bg-green-500' : 'bg-red-500'}`} />
               <span className="text-xs text-muted-foreground">
                 {groqKeyValid ? 'Active' : 'Not configured'}
               </span>
@@ -270,8 +272,4 @@ function SettingsDialog() {
       </DialogContent>
     </Dialog>
   );
-}
-
-function cn(...classes: (string | boolean | undefined | null)[]) {
-  return classes.filter(Boolean).join(' ');
 }

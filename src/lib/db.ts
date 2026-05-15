@@ -1,18 +1,7 @@
-import { PrismaClient } from '@prisma/client'
+// Database abstraction — Vercel serverless compatible
+// Prisma/SQLite is NOT used in production serverless environment.
+// Oracle state → encrypted HTTP-only cookies (via crypto.ts)
+// Session / mutation state → Zustand + localStorage (client-side)
+// This file exists so legacy imports of isDbAvailable don't break at build time.
 
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined
-}
-
-export let db: PrismaClient;
-export let isDbAvailable = true;
-
-try {
-  db = globalForPrisma.prisma ?? new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['query'] : [],
-  });
-  if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db;
-} catch {
-  isDbAvailable = false;
-  db = null as unknown as PrismaClient;
-}
+export const isDbAvailable = false;

@@ -35,10 +35,15 @@ export function BriefingPanel() {
     setError('');
 
     try {
+      const groqApiKey = useSessionStore.getState().groqApiKey;
+      if (!groqApiKey) {
+        setError('No Groq API key configured. Go to Settings to add your key.');
+        return;
+      }
       const res = await fetch('/api/oracle/init', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, hardeningLevel: level }),
+        body: JSON.stringify({ sessionId, hardeningLevel: level, groqKey: groqApiKey }),
       });
       const data = await res.json();
 

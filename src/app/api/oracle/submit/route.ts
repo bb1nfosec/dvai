@@ -1,155 +1,88 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isDbAvailable, db } from '@/lib/db';
 import { validateOracleGuess, calculateOracleScore } from '@/lib/oracle-engine';
 import { analyzeAndMutate } from '@/lib/mutation-engine';
-import {
-  memFindOperation,
-  memFindSession,
-  memUpdateOperation,
-  memCreateSubmission,
-  memGetSubmissions,
-  memCreateMutation,
-} from '@/lib/memory-store';
+import { decrypt } from '@/lib/crypto';
 
+const COOKIE_NAME = 'dvai_oracle';
+
+interface OracleCookieState {
+  operationId: string;
+  secret: string;
+  hardeningLevel: number;
+  apiCallCount: number;
+  apiCallBudget: number;
+  startedAt: string;
+}
+
+function readOracleCookie(request: NextRequest): OracleCookieState | null {
+  const raw = request.cookies.get(COOKIE_NAME)?.value;
+  if (!raw) return null;
+  const json = decrypt(raw);
+  if (!json) return null;
+  try {
+    return JSON.parse(json) as OracleCookieState;
+  } catch {
+    return null;
+  }
+}
+
+// ─── POST: Submit a guess ─────────────────────────────────────
+// Reads secret from encrypted cookie, validates guess, returns score + mutation.
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { operationId, guess } = body;
+    const { guess } = body;
 
-    if (!operationId || !guess) {
-      return NextResponse.json({ error: 'operationId and guess required' }, { status: 400 });
+    if (!guess || typeof guess !== 'string') {
+      return NextResponse.json({ error: 'guess required' }, { status: 400 });
     }
 
-    if (isDbAvailable) {
-      const operation = await db.operation.findUnique({
-        where: { id: operationId },
-        include: { session: true, submissions: true },
-      });
-      if (!operation || operation.status !== 'active') {
-        return NextResponse.json({ error: 'Operation not found or not active' }, { status: 404 });
-      }
-
-      const result = validateOracleGuess(operation.currentSecret!, guess);
-      const timeToSolve = operation.startedAt
-        ? (Date.now() - operation.startedAt.getTime()) / 1000 : 0;
-
-      await db.operationSubmission.create({
-        data: {
-          operationId, guess, isCorrect: result.correct,
-          apiCallsUsed: operation.apiCallCount,
-        },
-      });
-
-      if (result.correct) {
-        const score = calculateOracleScore({
-          apiCallsUsed: operation.apiCallCount,
-          apiCallBudget: operation.apiCallBudget,
-          hardeningLevel: operation.hardeningLevel,
-          timeToSolveSeconds: timeToSolve,
-          guessCount: operation.submissions.length + 1,
-          hasAnomalySignals: false,
-        });
-
-        await db.operation.update({
-          where: { id: operationId },
-          data: { status: 'solved', solvedAt: new Date() },
-        });
-
-        const mutation = analyzeAndMutate('OP-ORACLE', operation.hardeningLevel, {
-          apiCallsUsed: operation.apiCallCount,
-          guessCount: operation.submissions.length + 1,
-          timeToSolve,
-        });
-
-        await db.mutationLog.create({
-          data: {
-            sessionId: operation.sessionId, operationId,
-            opCode: 'OP-ORACLE', hardeningLevel: mutation.newHardeningLevel,
-            ttpName: mutation.ttpName, ttpCategory: mutation.ttpCategory,
-            description: mutation.description, mutationApplied: mutation.mutationApplied,
-          },
-        });
-
-        return NextResponse.json({
-          correct: true, accuracy: result.accuracy, score,
-          mutation: {
-            newHardeningLevel: mutation.newHardeningLevel,
-            ttpName: mutation.ttpName,
-            mutationApplied: mutation.mutationApplied,
-          },
-        });
-      }
-
-      return NextResponse.json({
-        correct: false, accuracy: result.accuracy, hint: result.hint,
-        apiCallsUsed: operation.apiCallCount,
-      });
+    const state = readOracleCookie(request);
+    if (!state) {
+      return NextResponse.json({ error: 'No active operation found' }, { status: 400 });
     }
 
-    // In-memory fallback
-    const operation = memFindOperation(operationId);
-    if (!operation || operation.status !== 'active') {
-      return NextResponse.json({ error: 'Operation not found or not active' }, { status: 404 });
-    }
-
-    const result = validateOracleGuess(operation.currentSecret!, guess);
-    const timeToSolve = operation.startedAt
-      ? (Date.now() - new Date(operation.startedAt).getTime()) / 1000 : 0;
-
-    const existingSubs = memGetSubmissions(operationId);
-    memCreateSubmission({
-      operationId, guess, isCorrect: result.correct,
-      apiCallsUsed: operation.apiCallCount,
-      scoreBreakdown: null,
-    });
+    const result = validateOracleGuess(state.secret, guess);
+    const timeToSolve = state.startedAt
+      ? (Date.now() - new Date(state.startedAt).getTime()) / 1000
+      : 0;
 
     if (result.correct) {
       const score = calculateOracleScore({
-        apiCallsUsed: operation.apiCallCount,
-        apiCallBudget: operation.apiCallBudget,
-        hardeningLevel: operation.hardeningLevel,
+        apiCallsUsed: state.apiCallCount,
+        apiCallBudget: state.apiCallBudget,
+        hardeningLevel: state.hardeningLevel,
         timeToSolveSeconds: timeToSolve,
-        guessCount: existingSubs.length + 1,
+        guessCount: 1,
         hasAnomalySignals: false,
       });
 
-      memUpdateOperation(operationId, {
-        status: 'solved',
-        solvedAt: new Date().toISOString(),
-      });
-
-      const mutation = analyzeAndMutate('OP-ORACLE', operation.hardeningLevel, {
-        apiCallsUsed: operation.apiCallCount,
-        guessCount: existingSubs.length + 1,
+      const mutation = analyzeAndMutate('OP-ORACLE', state.hardeningLevel, {
+        apiCallsUsed: state.apiCallCount,
+        guessCount: 1,
         timeToSolve,
       });
 
-      memCreateMutation({
-        sessionId: operation.sessionId,
-        operationId,
-        opCode: 'OP-ORACLE',
-        hardeningLevel: mutation.newHardeningLevel,
-        ttpName: mutation.ttpName,
-        ttpCategory: mutation.ttpCategory,
-        description: mutation.description,
-        mutationApplied: mutation.mutationApplied,
-        previousConfig: null,
-        newConfig: null,
-      });
-
       return NextResponse.json({
-        correct: true, accuracy: result.accuracy, score,
+        correct: true,
+        accuracy: result.accuracy,
+        score,
         mutation: {
+          id: `mut_${Date.now().toString(36)}`,
           newHardeningLevel: mutation.newHardeningLevel,
           ttpName: mutation.ttpName,
+          ttpCategory: mutation.ttpCategory,
+          description: mutation.description,
           mutationApplied: mutation.mutationApplied,
         },
       });
     }
 
     return NextResponse.json({
-      correct: false, accuracy: result.accuracy, hint: result.hint,
-      apiCallsUsed: operation.apiCallCount,
+      correct: false,
+      accuracy: result.accuracy,
+      hint: result.hint,
+      apiCallsUsed: state.apiCallCount,
     });
   } catch (error) {
     console.error('Oracle submit error:', error);

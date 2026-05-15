@@ -36,7 +36,7 @@ export function MetricsPanel() {
     },
     {
       label: 'Oracle API Calls',
-      value: (oracleOp?.apiCallCount ?? 0).toLocaleString(),
+      value: (oracleOp?.apiCallsUsed ?? 0).toLocaleString(),
       icon: Zap,
       color: 'text-blue-400',
       bgColor: 'bg-blue-500/10',

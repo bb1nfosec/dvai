@@ -1,51 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isDbAvailable, db } from '@/lib/db';
-import { memFindOperation, memGetSubmissions } from '@/lib/memory-store';
+import { decrypt } from '@/lib/crypto';
 
+const COOKIE_NAME = 'dvai_oracle';
+
+interface OracleCookieState {
+  operationId: string;
+  secret: string;
+  hardeningLevel: number;
+  apiCallCount: number;
+  apiCallBudget: number;
+  startedAt: string;
+}
+
+// ─── GET: Oracle operation status ─────────────────────────────
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const operationId = searchParams.get('operationId');
-
-    if (!operationId) {
-      return NextResponse.json({ error: 'operationId required' }, { status: 400 });
+    const raw = request.cookies.get(COOKIE_NAME)?.value;
+    if (!raw) {
+      return NextResponse.json({ error: 'No active operation' }, { status: 404 });
     }
 
-    if (isDbAvailable) {
-      const operation = await db.operation.findUnique({
-        where: { id: operationId },
-        include: { submissions: { orderBy: { createdAt: 'desc' } } },
-      });
-      if (!operation) return NextResponse.json({ error: 'Operation not found' }, { status: 404 });
-
-      return NextResponse.json({
-        id: operation.id, opCode: operation.opCode, status: operation.status,
-        hardeningLevel: operation.hardeningLevel,
-        apiCallCount: operation.apiCallCount, apiCallBudget: operation.apiCallBudget,
-        remainingBudget: operation.apiCallBudget - operation.apiCallCount,
-        startedAt: operation.startedAt, solvedAt: operation.solvedAt,
-        submissionCount: operation.submissions.length,
-        lastSubmission: operation.submissions[0]
-          ? { correct: operation.submissions[0].isCorrect, createdAt: operation.submissions[0].createdAt }
-          : null,
-      });
+    const json = decrypt(raw);
+    if (!json) {
+      return NextResponse.json({ error: 'Invalid or corrupted operation data' }, { status: 400 });
     }
 
-    // In-memory fallback
-    const operation = memFindOperation(operationId);
-    if (!operation) return NextResponse.json({ error: 'Operation not found' }, { status: 404 });
+    const state: OracleCookieState = JSON.parse(json);
 
-    const subs = memGetSubmissions(operationId);
     return NextResponse.json({
-      id: operation.id, opCode: operation.opCode, status: operation.status,
-      hardeningLevel: operation.hardeningLevel,
-      apiCallCount: operation.apiCallCount, apiCallBudget: operation.apiCallBudget,
-      remainingBudget: operation.apiCallBudget - operation.apiCallCount,
-      startedAt: operation.startedAt, solvedAt: operation.solvedAt,
-      submissionCount: subs.length,
-      lastSubmission: subs[0]
-        ? { correct: subs[0].isCorrect, createdAt: subs[0].createdAt }
-        : null,
+      id: state.operationId,
+      opCode: 'OP-ORACLE',
+      status: 'active',
+      hardeningLevel: state.hardeningLevel,
+      apiCallCount: state.apiCallCount,
+      apiCallBudget: state.apiCallBudget,
+      remainingBudget: state.apiCallBudget - state.apiCallCount,
+      startedAt: state.startedAt,
     });
   } catch (error) {
     console.error('Oracle status error:', error);
