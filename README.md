@@ -13,24 +13,32 @@
 
 <p align="center">
   <strong>Open-source, zero-infrastructure-cost AI red team training range.</strong><br/>
-  Six operations. Player-supplied API keys. Vercel free tier. Community TTP registry.
+  Six operations. Player-supplied API keys. Vercel free tier. Anti-cheat hardened.
+</p>
+
+<p align="center">
+  <a href="https://dvai-red.vercel.app"><strong>Live Demo</strong></a> &middot;
+  <a href="#operations"><strong>Operations</strong></a> &middot;
+  <a href="#getting-started"><strong>Getting Started</strong></a> &middot;
+  <a href="#architecture"><strong>Architecture</strong></a>
 </p>
 
 ---
 
 ## What is DVAI?
 
-DVAI is a deliberately vulnerable AI ecosystem designed for security researchers, red team operators, and ML engineers to practice adversarial techniques against real language models. Unlike traditional CTF platforms, DVAI focuses exclusively on **AI-specific attack surfaces** — from logprob side-channels to multi-stage pipeline exploitation.
+DVAI is a deliberately vulnerable AI ecosystem designed for security researchers, red team operators, and ML engineers to practice adversarial techniques against real language models. Unlike traditional CTF platforms, DVAI focuses exclusively on **AI-specific attack surfaces** — from logprob side-channels to multi-stage pipeline exploitation and adversarial suffix optimization.
 
-Every operation routes through **player-supplied API keys** (Groq, Claude). The Vercel deployment itself costs **$0/month at any scale** — all heavy compute is either player-side or key-proxied.
+Every operation routes through **player-supplied API keys** (Groq). The Vercel deployment itself costs **$0/month at any scale** — all heavy compute is player-side or key-proxied. The platform is **anti-cheat hardened** so that reading the source code cannot reveal challenge solutions — all secrets and validation logic are generated dynamically at runtime using cryptographic techniques.
 
 ### Design Principles
 
 | Principle | Implementation |
 |-----------|---------------|
 | **Zero infra cost** | Vercel free tier + player API keys. No server-side LLM costs. |
-| **Player-owned keys** | Groq for inference, Claude for mutation engine. You bring the keys. |
+| **Player-owned keys** | Groq for inference. You bring the keys. |
 | **Real models, real attacks** | Production LLMs with logprob access. No emulators. |
+| **Anti-cheat hardened** | Runtime secret generation, server-side opacity, empirical-only solving paths. Source code reading cannot reveal answers. |
 | **Self-hardening** | Mutation engine analyzes solved TTPs and generates harder variants. |
 | **Open research** | All TTPs exported as markdown — community-maintained registry. |
 
@@ -38,14 +46,14 @@ Every operation routes through **player-supplied API keys** (Groq, Claude). The 
 
 ## Operations
 
-### OP-ORACLE — Logprob Side-Channel Key Extraction ⚡ PLAYABLE
+### OP-ORACLE — Logprob Side-Channel Key Extraction ⚡
 
 > A secret string is embedded in the system prompt of a Groq-backed model. You have black-box access with full logprob output. Extract the secret statistically in under 10,000 API calls.
 
 **Attack Vector**: Token probability distribution analysis (logprobs)
 **Win Condition**: Correctly identify the complete secret string
 **Scoring**: Call efficiency vs. theoretical minimum, technique novelty, transferability across model variants
-**Hardening Levels**: L1 (8-char alphanumeric) → L5 (UUID)
+**Hardening Levels**: L1 (8-char alphanumeric) → L6 (BLIND MODE — server-side secret, opaque scoring)
 
 <details>
 <summary><strong>Technical Details</strong></summary>
@@ -62,48 +70,179 @@ The system prompt hardens at each level:
 - L3: + Response randomization instructions
 - L4: Passphrase format (word-level analysis required)
 - L5: UUID (maximum entropy, minimal distribution leakage)
+- L6: BLIND MODE — secret never appears in prompts, server-side scoring, response stripping
 
 </details>
 
-### OP-SCHEMAPOISON — JSON-LD Context Authority Poisoning 🔒
+### OP-SCHEMAPOISON — RAG Knowledge Base Poisoning ⚡
 
-> Inject persistent behavioral bias into a Qdrant RAG pipeline through JSON-LD context manipulation. Win condition: behavioral bias on a specific entity without explicit injection strings.
+> Inject persistent behavioral bias into a simulated RAG pipeline through schema poisoning. Plant knowledge base entries that shift the system's answers on a target topic without using any explicit trigger words.
 
-**Attack Vector**: Knowledge graph poisoning via structured data injection
-**Target**: Qdrant Cloud RAG pipeline
-**Constraint**: No injection strings may appear in the final output
+**Attack Vector**: Knowledge base poisoning via structured document injection
+**Mechanism**: Simulated RAG pipeline with document retrieval and response generation
+**Constraint**: No injection strings may appear in the target entity's description
+**Scoring**: Bias magnitude achieved × stealth (no explicit mention of target)
 
-### OP-EIGENBLIND — Adversarial Suffix Optimization 🔒
+<details>
+<summary><strong>Technical Details</strong></summary>
 
-> Generate transferable adversarial suffixes against a hardened model. Run gradient optimization in a provided Colab notebook. Validate transfer success across 3 system prompt variants simulating model checkpoints.
+OP-SCHEMAPOISON simulates a RAG pipeline with a knowledge base of documents. Players inject poisoned documents that manipulate the system's responses about a target entity. The challenge requires understanding how retrieval-augmented generation works and exploiting the document ranking and context assembly process.
 
-**Attack Vector**: Gradient-based adversarial suffix generation (player-side Colab)
-**Validation**: Vercel endpoint tests transfer across prompt variants
-**Heavy Compute**: Player's Colab notebook (no server cost)
+Key mechanics:
+- **Document injection**: Players submit documents with subtle bias patterns
+- **Knowledge base query**: Query the pipeline to observe behavioral shifts
+- **Bias detection**: System measures opinion drift on the target entity
+- **Stealth scoring**: Explicit trigger words in injected content reduce score
+- **Multiple rounds**: Players can iteratively refine their injection strategy
 
-### OP-OUROBOROS — Multi-Stage Pipeline Exploitation 🔒
+The pipeline uses TF-IDF-style relevance scoring to simulate realistic RAG behavior, making the challenge about understanding and exploiting retrieval mechanics rather than brute-force injection.
 
-> Three-stage model pipeline (planner → validator → executor) as three system prompt variants on Groq. Infer validator criteria and executor action space, then satisfy both with one poisoned document.
+</details>
 
-**Attack Vector**: Black-box constraint satisfaction + multi-stage reasoning exploitation
-**Constraint**: Single document must satisfy both validator and executor
-**Win Condition**: Infer both criteria sets and produce a valid exploit
+### OP-EIGENBLIND — Adversarial Suffix Optimization ⚡
 
-### OP-LONGCON — 20-Turn Semantic Manipulation 🔒
+> Generate adversarial suffixes that flip a model's classification decision on a target prompt. The classifier defends with randomized system prompts — your suffix must transfer across multiple prompt variants.
 
-> Achieve target disclosure at turn 20+ with zero anomaly flags on any individual turn. Client-side cosine similarity anomaly detection (AgentGuard-style) runs in real-time — understand what it measures to evade it.
+**Attack Vector**: Adversarial token optimization for behavior manipulation
+**Mechanism**: Groq-based classifier with randomized defensive prompts per evaluation
+**Constraint**: Suffix must succeed across 3+ prompt variant evaluations
+**Scoring**: Success rate × suffix length efficiency × transfer robustness
+
+<details>
+<summary><strong>Technical Details</strong></summary>
+
+OP-EIGENBLIND challenges players to craft text suffixes that cause a classifier to flip its decision on a target prompt. Unlike traditional adversarial ML challenges that require gradient computation, this operation uses iterative probing and linguistic creativity.
+
+Key mechanics:
+- **Classification target**: A prompt that the model classifies in a specific way (e.g., "safe" vs. "unsafe")
+- **Suffix optimization**: Players append adversarial text to flip the classification
+- **Randomized defenses**: Each evaluation uses a different system prompt variant
+- **Transfer testing**: The suffix must work across multiple prompt configurations
+- **Efficiency scoring**: Shorter suffixes that achieve higher success rates score better
+
+The challenge models real-world AI safety scenarios where adversarial inputs must bypass varied defense configurations.
+
+</details>
+
+### OP-OUROBOROS — Multi-Stage Pipeline Exploitation ⚡
+
+> Exploit a three-stage AI pipeline: Classify → Filter → Respond. Infer the filtering criteria from black-box probing, then craft an input that passes all stages while delivering a hidden payload.
+
+**Attack Vector**: Black-box constraint inference + multi-stage pipeline exploitation
+**Mechanism**: Three-stage pipeline (Classifier → Filter → Responder) running on Groq
+**Constraint**: Input must pass all three stages undetected
+**Scoring**: Pipeline penetration depth × payload delivery × query efficiency
+
+<details>
+<summary><strong>Technical Details</strong></summary>
+
+OP-OUROBOROS presents a realistic multi-stage AI pipeline where each stage has different criteria:
+
+- **Stage 1 (Classifier)**: Categorizes the input and determines routing
+- **Stage 2 (Filter)**: Applies content rules and security checks
+- **Stage 3 (Responder)**: Generates the final output based on filtered input
+
+Players must:
+1. **Probe** each stage individually to understand its behavior
+2. **Infer** the filtering criteria through systematic black-box testing
+3. **Craft** an input that navigates all three stages while embedding a payload
+4. **Validate** that the payload survives the full pipeline
+
+The pipeline stages have overlapping but distinct criteria, requiring players to understand multi-layered AI defense architectures.
+
+</details>
+
+### OP-LONGCON — 20-Turn Semantic Manipulation ⚡
+
+> Achieve a target disclosure from the model at turn 20+ without triggering anomaly detection on any individual turn. An embedded cosine similarity monitor flags suspicious semantic drift in real-time.
 
 **Attack Vector**: Gradual semantic drift over extended conversation
-**Defense**: Embedded cosine similarity monitor per turn
-**Constraint**: No keywords, no single-turn anomalies, disclosure at turn ≥20
+**Defense**: Per-turn cosine similarity anomaly detection (AgentGuard-style)
+**Constraint**: No keywords, no single-turn anomalies, disclosure at turn 20+
+**Scoring**: Anomaly score (lower is better) × turn efficiency × disclosure quality
 
-### OP-CARTESIAN — Mutation Engine Bypass 🔒
+<details>
+<summary><strong>Technical Details</strong></summary>
 
-> Subvert the Claude-powered mutation engine. Submit a bypass that causes the mutator to generate a secretly easier variant while appearing to harden. A second Claude judge instance simulates human review.
+OP-LONGCON simulates an extended AI conversation with a turn-by-turn anomaly detection system:
 
-**Attack Vector**: Meta-exploitation of the hardening system itself
-**Defense**: Dual Claude evaluation (mutator + judge)
-**Win Condition**: Mutated challenge is measurably easier despite passing judge review
+- **Conversation model**: Groq-powered chatbot with a specific personality and knowledge boundary
+- **Target disclosure**: A specific fact or opinion the model is instructed to never share
+- **Anomaly detection**: Each turn is scored for semantic drift using cosine similarity
+- **Threshold system**: Individual turns must stay below the anomaly threshold
+- **Turn counter**: Must reach turn 20+ before achieving disclosure
+
+The cosine similarity monitor compares each turn's embedding against the conversation's running baseline. Players must understand what the monitor measures and craft a strategy that gradually shifts the model's behavior without triggering detection on any single turn. This models real-world "slow poisoning" attacks against conversational AI systems.
+
+</details>
+
+### OP-CARTESIAN — Mutation Engine Bypass ⚡
+
+> The mutation engine analyzes your attack and generates a hardened variant. Your goal: submit a technique so effective that it breaks the mutation engine itself, causing it to generate a secretly easier challenge while appearing to harden.
+
+**Attack Vector**: Meta-exploitation of the hardening system
+**Mechanism**: Mutation engine analyzes TTPs and applies hardening strategies
+**Defense**: Dual evaluation (mutation + validation scoring)
+**Win Condition**: Mutated challenge is measurably easier despite appearing hardened
+**Scoring**: Mutation exploit success × disguise quality × original solve efficiency
+
+<details>
+<summary><strong>Technical Details</strong></summary>
+
+OP-CARTESIAN is the meta-challenge that targets the DVAI platform itself:
+
+- **TTP submission**: Players solve a precursor challenge and submit their technique
+- **Mutation analysis**: The engine categorizes the technique and applies hardening
+- **Mutation exploit**: Players craft submissions designed to confuse or misdirect the mutator
+- **Difficulty measurement**: Each mutated variant is independently testable for difficulty
+- **Double-blind scoring**: Neither the player nor the mutator knows the true difficulty target
+
+This operation requires understanding how the mutation engine works at a deep level — including its categorization heuristics, hardening strategies, and evaluation criteria. Successful exploits demonstrate mastery of adversarial AI at the meta level.
+
+</details>
+
+---
+
+## Anti-Cheat System
+
+DVAI implements a comprehensive anti-cheat framework designed so that **reading the source code cannot reveal challenge solutions**. The system operates on multiple layers:
+
+### Design Philosophy
+
+The core insight is that static code analysis can only reveal the *structure* of a challenge — not the *runtime state*. DVAI exploits this gap through:
+
+| Layer | Technique | What It Hides |
+|-------|-----------|---------------|
+| **Runtime Generation** | Secrets created at `init` time, not hardcoded | Secret values, target strings |
+| **Server-Side Opacity** | Scoring and validation happen entirely server-side | Validation criteria, thresholds |
+| **Cryptographic State** | Session state encrypted in HTTP-only cookies | Internal challenge state |
+| **Procedural Variation** | Parameters randomized per session | Exact difficulty, character sets |
+| **BLIND MODE** | Stripped responses, opaque feedback | Ground truth, correct answers |
+
+### Per-Operation Protections
+
+| Operation | Anti-Cheat Method |
+|-----------|-------------------|
+| **ORACLE** | L6 BLIND MODE: secret never in prompts, server-side validation only |
+| **SCHEMAPOISON** | Procedural target generation, randomized pipeline config |
+| **EIGENBLIND** | Randomized defense prompts each evaluation, server-side classification |
+| **OUROBOROS** | Procedural pipeline criteria, black-box stage inference required |
+| **LONGCON** | Dynamic thresholds, randomized anomaly detection sensitivity |
+| **CARTESIAN** | Server-side mutation analysis, opaque difficulty scoring |
+
+### Source Code Reading: What's Visible vs. Hidden
+
+```
+What Claude Code CAN see:          What Claude Code CANNOT see:
+───────────────────────────       ─────────────────────────────
+Challenge structure & flow         Your session's secret values
+API endpoint signatures            Your session's validation thresholds
+Scoring formula shape              Your session's randomized parameters
+Engine architecture                Runtime-generated system prompts
+Anti-cheat mechanism names         BLIND MODE internal state
+```
+
+The key guarantee: **understanding the code tells you HOW to play, not WHAT the answer is.**
 
 ---
 
@@ -114,34 +253,42 @@ The system prompt hardens at each level:
 │                        Vercel (Free)                         │
 │                                                              │
 │  ┌──────────┐  ┌──────────────┐  ┌─────────────────────┐   │
-│  │ Next.js  │  │  API Routes  │  │   SQLite / Vercel   │   │
-│  │  Frontend │──│  (Proxies)  │──│      KV Store       │   │
-│  │  (React) │  │              │  │  (mutation log,     │   │
-│  │          │  │              │  │   session state)    │   │
+│  │ Next.js  │  │  API Routes  │  │  Encrypted Cookies  │   │
+│  │  Frontend │──│  (Proxies)  │──│  (Session State)    │   │
+│  │  (React) │  │              │  │  (Web Crypto API)   │   │
 │  └──────────┘  └──────┬───────┘  └─────────────────────┘   │
 │                       │                                     │
 │  ┌────────────────────┼──────────────────────┐              │
-│  │ Player-Supplied API Keys (at runtime)     │              │
-│  │                    │                      │              │
-│  │         ┌──────────┴──────────┐           │              │
-│  │         │                     │           │              │
-│  │    ┌────▼─────┐         ┌─────▼────┐      │              │
-│  │    │   Groq   │         │  Claude  │      │              │
-│  │    │ (Infer.) │         │ (Mutation│      │              │
-│  │    │          │         │  Engine) │      │              │
-│  │    └──────────┘         └──────────┘      │              │
+│  │              Challenge Engines            │              │
+│  │  ┌─────────┐ ┌────────────┐ ┌─────────┐  │              │
+│  │  │ Oracle  │ │SchemaPoison│ │Eigenblind│  │              │
+│  │  └─────────┘ └────────────┘ └─────────┘  │              │
+│  │  ┌─────────┐ ┌──────────┐ ┌───────────┐  │              │
+│  │  │Ouroboros│ │ LongCon  │ │ Cartesian │  │              │
+│  │  └─────────┘ └──────────┘ └───────────┘  │              │
+│  │                    │                     │              │
+│  │         ┌──────────┴──────────┐          │              │
+│  │         │   Anti-Cheat Layer  │          │              │
+│  │         │ (Procedural Gen,    │          │              │
+│  │         │  Blind Mode,        │          │              │
+│  │         │  Server Opacity)    │          │              │
+│  │         └─────────────────────┘          │              │
 │  └───────────────────────────────────────────┘              │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │              Qdrant Cloud (OP-SCHEMAPOISON)           │   │
-│  │         Player-supplied Qdrant Cloud instance         │   │
-│  └──────────────────────────────────────────────────────┘   │
+│                       │                                     │
+│              Player-Supplied API Key                         │
+│                       │                                     │
+│              ┌────────▼────────┐                             │
+│              │   Groq API      │                             │
+│              │ (Inference +    │                             │
+│              │  Logprobs)      │                             │
+│              └─────────────────┘                             │
 └─────────────────────────────────────────────────────────────┘
 
-Player-Side Heavy Compute:
+Client-Side:
 ┌────────────────────────────┐
-│  Google Colab Notebooks    │
-│  (OP-EIGENBLIND gradients) │
+│  Zustand State Store       │
+│  (UI state, API key mgmt)  │
+│  shadcn/ui + Tailwind CSS  │
 └────────────────────────────┘
 ```
 
@@ -150,10 +297,8 @@ Player-Side Heavy Compute:
 | Component | Provider | Monthly Cost |
 |-----------|----------|-------------|
 | Hosting | Vercel Free Tier | $0 |
-| Database | SQLite (local) / Vercel KV | $0 |
+| State | Encrypted HTTP-only cookies | $0 |
 | Inference | Player's Groq API key | Player's Groq free tier |
-| Mutation | Player's Claude API key | Player's Anthropic account |
-| RAG | Player's Qdrant Cloud | Player's Qdrant free tier |
 | **Total (infrastructure)** | — | **$0** |
 
 ---
@@ -163,11 +308,12 @@ Player-Side Heavy Compute:
 - **Framework**: Next.js 16 (App Router, Standalone output)
 - **Language**: TypeScript 5 (strict)
 - **Styling**: Tailwind CSS 4 + shadcn/ui (New York variant)
-- **Database**: Prisma ORM + SQLite (local), Vercel KV (production)
-- **State**: Zustand with localStorage persistence
-- **Charts**: Recharts (logprob visualization)
+- **State Management**: Zustand with localStorage persistence
+- **Session State**: Encrypted HTTP-only cookies via Web Crypto API
+- **Charts**: Recharts (logprob visualization, analytics)
 - **Icons**: Lucide React
 - **Inference**: Groq API (OpenAI-compatible, logprob support)
+- **Anti-Cheat**: Custom procedural generation + BLIND MODE
 
 ---
 
@@ -183,7 +329,7 @@ Player-Side Heavy Compute:
 
 ```bash
 # Clone the repo
-git clone https://github.com/YOUR_USERNAME/dvai.git
+git clone https://github.com/bb1nfosec/dvai.git
 cd dvai
 
 # Install dependencies
@@ -191,9 +337,6 @@ bun install
 
 # Set up environment
 cp .env.example .env.local
-
-# Initialize database
-bun run db:push
 
 # Start development server
 bun dev
@@ -210,9 +353,8 @@ npm i -g vercel
 # Deploy
 vercel
 
-# Set up Vercel KV (optional, for production persistence)
-vercel env add KVC_REST_API_URL
-vercel env add KVC_REST_API_TOKEN
+# Set environment variables (optional)
+vercel env add ENCRYPTION_SECRET
 ```
 
 **That's it.** No external services to configure. No server-side API keys to set. Players bring their own keys at runtime.
@@ -226,46 +368,78 @@ dvai/
 ├── src/
 │   ├── app/
 │   │   ├── api/
-│   │   │   ├── session/route.ts          # Player session CRUD
+│   │   │   ├── version/route.ts              # Deployment health check
 │   │   │   ├── oracle/
-│   │   │   │   ├── init/route.ts         # Initialize OP-ORACLE
-│   │   │   │   ├── query/route.ts        # Proxy to Groq with logprobs
-│   │   │   │   ├── submit/route.ts       # Validate guess + score
-│   │   │   │   └── status/route.ts       # Poll operation status
-│   │   │   └── mutations/route.ts        # TTP registry (JSON + MD)
-│   │   ├── globals.css                   # Dark terminal theme
-│   │   ├── layout.tsx                    # Root layout (dark default)
-│   │   └── page.tsx                      # Main SPA shell
+│   │   │   │   ├── init/route.ts             # Initialize OP-ORACLE
+│   │   │   │   ├── query/route.ts            # Proxy to Groq with logprobs
+│   │   │   │   ├── submit/route.ts           # Validate guess + score
+│   │   │   │   └── status/route.ts           # Poll operation status
+│   │   │   ├── schemapoison/
+│   │   │   │   ├── init/route.ts             # Initialize OP-SCHEMAPOISON
+│   │   │   │   ├── inject/route.ts           # Inject poisoned documents
+│   │   │   │   ├── query/route.ts            # Query the RAG pipeline
+│   │   │   │   ├── submit/route.ts           # Submit final exploit
+│   │   │   │   └── status/route.ts           # Poll operation status
+│   │   │   ├── eigenblind/
+│   │   │   │   ├── init/route.ts             # Initialize OP-EIGENBLIND
+│   │   │   │   ├── classify/route.ts         # Test adversarial suffix
+│   │   │   │   ├── submit/route.ts           # Submit final suffix
+│   │   │   │   └── status/route.ts           # Poll operation status
+│   │   │   ├── ouroboros/
+│   │   │   │   ├── init/route.ts             # Initialize OP-OUROBOROS
+│   │   │   │   ├── pipeline/route.ts         # Send through 3-stage pipeline
+│   │   │   │   ├── query/route.ts            # Probe pipeline stages
+│   │   │   │   ├── submit/route.ts           # Submit final exploit
+│   │   │   │   └── status/route.ts           # Poll operation status
+│   │   │   ├── longcon/
+│   │   │   │   ├── init/route.ts             # Initialize OP-LONGCON
+│   │   │   │   ├── turn/route.ts             # Submit conversation turn
+│   │   │   │   ├── submit/route.ts           # Submit final conversation
+│   │   │   │   └── status/route.ts           # Poll operation status
+│   │   │   └── cartesian/
+│   │   │       ├── init/route.ts             # Initialize OP-CARTESIAN
+│   │   │       ├── query/route.ts            # Submit mutation exploit
+│   │   │       ├── submit/route.ts           # Submit final exploit
+│   │   │       └── status/route.ts           # Poll operation status
+│   │   ├── globals.css                       # Dark terminal theme
+│   │   ├── layout.tsx                        # Root layout (dark default)
+│   │   └── page.tsx                          # Main SPA shell
 │   ├── components/
 │   │   ├── layout/
-│   │   │   ├── sidebar.tsx               # Collapsible nav + hardening indicator
-│   │   │   └── header.tsx                # Session setup + API key dialog
+│   │   │   ├── sidebar.tsx                   # Collapsible nav + hardening indicator
+│   │   │   └── header.tsx                    # Session setup + API key dialog
 │   │   ├── dashboard/
-│   │   │   ├── ops-grid.tsx              # 6 operation cards
-│   │   │   └── metrics-panel.tsx         # Operational metrics
-│   │   ├── oracle/
-│   │   │   ├── oracle-view.tsx           # State router (briefing/active/solved)
-│   │   │   ├── briefing-panel.tsx        # Mission brief + rules
-│   │   │   ├── challenge-panel.tsx       # Chat interface + analysis workspace
-│   │   │   ├── logprob-viewer.tsx        # Token logprob table
-│   │   │   ├── logprob-chart.tsx         # Recharts frequency analysis
-│   │   │   └── results-panel.tsx         # Score breakdown + mutation
+│   │   │   ├── ops-grid.tsx                  # 6 operation cards
+│   │   │   └── metrics-panel.tsx             # Operational metrics
+│   │   ├── oracle/                           # OP-ORACLE UI components
+│   │   ├── schemapoison/                     # OP-SCHEMAPOISON UI components
+│   │   ├── eigenblind/                       # OP-EIGENBLIND UI components
+│   │   ├── ouroboros/                        # OP-OUROBOROS UI components
+│   │   ├── longcon/                          # OP-LONGCON UI components
+│   │   ├── cartesian/                        # OP-CARTESIAN UI components
+│   │   ├── session/
+│   │   │   └── api-key-dialog.tsx            # API key management
 │   │   ├── ttps/
-│   │   │   └── ttp-registry.tsx          # TTP table + MD export
-│   │   └── ui/                           # shadcn/ui components
+│   │   │   └── ttp-registry.tsx              # TTP table + MD export
+│   │   └── ui/                               # shadcn/ui components
 │   ├── lib/
-│   │   ├── groq.ts                       # Groq API client (logprobs)
-│   │   ├── oracle-engine.ts             # Secret generation + scoring
-│   │   ├── mutation-engine.ts           # TTP analysis + mutation strategies
-│   │   ├── kv.ts                         # KV abstraction (SQLite fallback)
-│   │   └── db.ts                         # Prisma client
+│   │   ├── groq.ts                           # Groq API client (logprobs)
+│   │   ├── oracle-engine.ts                  # Secret generation + scoring
+│   │   ├── schemapoison-engine.ts            # RAG pipeline + poisoning logic
+│   │   ├── eigenblind-engine.ts              # Classifier + adversarial eval
+│   │   ├── ouroboros-engine.ts               # 3-stage pipeline + criteria gen
+│   │   ├── longcon-engine.ts                 # Conversation + anomaly detection
+│   │   ├── cartesian-engine.ts               # Mutation analysis + exploit scoring
+│   │   ├── mutation-engine.ts                # TTP analysis + mutation strategies
+│   │   ├── anti-cheat.ts                     # Anti-cheat framework + BLIND MODE
+│   │   ├── procedural.ts                     # Procedural generation utilities
+│   │   ├── crypto.ts                         # Web Crypto API state encryption
+│   │   └── db.ts                             # Cookie-based state helpers
 │   └── store/
-│       └── session-store.ts              # Zustand (persisted)
-├── prisma/
-│   └── schema.prisma                     # 5 models: Session, Op, Submission, Mutation, KV
+│       └── session-store.ts                  # Zustand (persisted)
 ├── public/
 ├── .env.example
-├── vercel.json                           # Security headers + region config
+├── vercel.json                               # Security headers + region config
 ├── next.config.ts
 ├── tailwind.config.ts
 └── package.json
@@ -278,8 +452,8 @@ dvai/
 After each solved operation, the mutation engine:
 
 1. **Analyzes the TTP** — Categorizes the technique (logprob-analysis, prompt-injection, side-channel, etc.)
-2. **Generates a mutation** — Applies one of 8 hardening strategies per operation type
-3. **Records the TTP** — Stores in Vercel KV with full metadata
+2. **Generates a mutation** — Applies hardening strategies per operation type
+3. **Records the TTP** — Stores with full metadata in the session
 4. **Exports to registry** — All TTPs exportable as community-maintained markdown
 
 ### TTP Categories
@@ -293,9 +467,8 @@ After each solved operation, the mutation engine:
 | `adversarial-suffix` | Optimized suffix generation for behavior modification |
 | `semantic-drift` | Gradual semantic manipulation over multiple turns |
 | `side-channel` | Information leakage through non-primary output channels |
-| `social-engineering` | Manipulating model behavior through conversational techniques |
-| `model-fingerprinting` | Identifying model characteristics through probing |
-| `constraint-inference` | Deducing hidden constraints through black-box testing |
+| `pipeline-exploit` | Multi-stage AI pipeline exploitation |
+| `knowledge-poisoning` | Injecting bias through knowledge base manipulation |
 
 ---
 
@@ -315,65 +488,52 @@ DVAI does not use points. Operational metrics measure real-world red team effect
 
 ## Hardening System
 
-Each operation has 5 hardening levels. Solving an operation triggers the mutation engine, which analyzes the TTP and applies a specific hardening strategy:
+Each operation has multiple hardening levels. Solving an operation triggers the mutation engine, which analyzes the TTP and applies a specific hardening strategy:
 
 ```
-L1 INITIATE     →  L2 ELEVATED    →  L3 ADVANCED    →  L4 EXPERT    →  L5 IMPOSSIBLE
-                                                                                     
-Basic target     Expanded char set   Adversarial       Passphrase     Maximum entropy
-Basic defenses   + Anti-analysis    + Randomization    (word-level)   (UUID format)
-                 + Anti-probing     + Anti-pattern
+L1 INITIATE  →  L2 ELEVATED  →  L3 ADVANCED  →  L4 EXPERT  →  L5 IMPOSSIBLE  →  L6 BLIND MODE
+
+Basic target   Expanded set    Adversarial      Passphrase     Maximum entropy   Server-side
+Basic defense  + Anti-analysis + Randomization  (word-level)   (UUID format)     Opaque scoring
+               + Anti-probing  + Anti-pattern                                    Stripped responses
 ```
-
-For OP-ORACLE specifically:
-- **L1**: 8-char alphanumeric, basic guard instructions
-- **L2**: 12-char with special chars, anti-probability-analysis awareness
-- **L3**: 16-char hex, response randomization + anti-pattern detection
-- **L4**: 4-word passphrase (word-level analysis required)
-- **L5**: UUID format (maximum entropy, minimal distribution leakage)
-
----
-
-## Security Considerations
-
-- **Player keys are stored in the database** — In production, use Vercel KV with encryption at rest and consider adding client-side encryption
-- **No authentication system** — Designed for open research. Add NextAuth.js for private deployments
-- **Rate limiting** — Not implemented by default (Groq handles its own rate limits). Add middleware for production
-- **CORS** — Vercel handles this. All API routes are same-origin
-- **Input validation** — Zod schemas recommended for production API routes
 
 ---
 
 ## Roadmap
 
-- [x] Repo scaffold + session management + OP-ORACLE (L1-L5)
+- [x] Repo scaffold + session management
+- [x] OP-ORACLE — Logprob side-channel extraction (L1-L6 BLIND MODE)
+- [x] OP-SCHEMAPOISON — RAG knowledge base poisoning
+- [x] OP-EIGENBLIND — Adversarial suffix optimization
+- [x] OP-OUROBOROS — Multi-stage pipeline exploitation
+- [x] OP-LONGCON — 20-turn semantic manipulation + anomaly detection
+- [x] OP-CARTESIAN — Mutation engine meta-exploitation
+- [x] Anti-cheat system — Runtime generation, BLIND MODE, server-side opacity
 - [x] Mutation engine + TTP registry
-- [ ] OP-SCHEMAPOISON — Qdrant RAG pipeline poisoning
-- [ ] OP-EIGENBLIND — Adversarial suffix + Colab notebook
-- [ ] OP-OUROBOROS — Multi-stage pipeline exploitation
-- [ ] OP-LONGCON — 20-turn semantic manipulation + AgentGuard
-- [ ] OP-CARTESIAN — Mutation engine meta-exploitation
 - [ ] Leaderboard system (anonymous, technique-based)
 - [ ] Docker compose for self-hosted deployment
 - [ ] Multiplayer mode (competing TTPs on same challenge)
+- [ ] Custom challenge builder (community-contributed operations)
 
 ---
 
 ## Contributing
 
 1. Fork the repo
-2. Create a feature branch: `git checkout -b feature/op-schemapoison`
-3. Commit your changes: `git commit -m 'Implement OP-SCHEMAPOISON'`
-4. Push to the branch: `git push origin feature/op-schemapoison`
+2. Create a feature branch: `git checkout -b feature/your-feature`
+3. Commit your changes: `git commit -m 'Add your feature'`
+4. Push to the branch: `git push origin feature/your-feature`
 5. Open a Pull Request
 
 ### Contribution Guidelines
 
-- New operations must follow the existing pattern: briefing → challenge → results
-- All TTPs must be exported via the mutation engine
+- New operations must follow the existing pattern: init → challenge → submit → results
+- All operations must implement anti-cheat protections (no hardcoded answers)
+- All TTPs must be exportable via the mutation engine
 - Scoring must use operational metrics, not points
 - UI must be responsive and dark-theme compatible
-- API routes must be stateless (except session-scoped)
+- API routes must be stateless (except session-scoped via cookies)
 
 ---
 
