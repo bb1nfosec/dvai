@@ -11,14 +11,12 @@ import {
   Radio,
   BarChart3,
   ArrowRight,
-  RotateCcw,
   FileText,
   Award,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 
 export function ResultsPanel() {
   const { oracle, operations, resetOracle, updateOperation, setActiveTab, competitionMode } = useSessionStore();
@@ -26,9 +24,13 @@ export function ResultsPanel() {
   const score = oracle.score;
   const submittedRef = React.useRef(false);
 
+  // Extract individual primitives to avoid effect re-running on every store change
+  const oracleOperationId = operations['OP-ORACLE']?.operationId;
+  const oracleHardeningLevel = operations['OP-ORACLE']?.hardeningLevel;
+
   // Auto-submit score to competition leaderboard when in competition mode
   React.useEffect(() => {
-    if (score && competitionMode && !submittedRef.current && operations['OP-ORACLE'].operationId) {
+    if (score && competitionMode && !submittedRef.current && oracleOperationId) {
       submittedRef.current = true;
       const breakdown = score.breakdown;
       submitScore({
@@ -38,10 +40,10 @@ export function ResultsPanel() {
         anomalySignals: score.anomalySignals,
         timeToSolve: breakdown.timeToSolve,
         hardeningLevel: breakdown.hardeningLevel,
-        operationId: operations['OP-ORACLE'].operationId!,
+        operationId: oracleOperationId,
       });
     }
-  }, [score, competitionMode, submitScore, operations]);
+  }, [score, competitionMode, submitScore, oracleOperationId, oracleHardeningLevel]);
 
   if (!score) {
     return (

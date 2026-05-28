@@ -18,7 +18,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 
 const LAYER_NAMES: Record<number, string> = {
   1: 'GAG ORDER',
@@ -42,21 +41,25 @@ export function ResultsPanel() {
   const score = cartesian.score;
   const submittedRef = React.useRef(false);
 
+  // Extract individual primitives to avoid effect re-running on every store change
+  const ctOperationId = operations['OP-CARTESIAN']?.operationId;
+  const ctHardeningLevel = operations['OP-CARTESIAN']?.hardeningLevel;
+
   // Auto-submit score to competition leaderboard when in competition mode
   React.useEffect(() => {
-    if (score && competitionMode && !submittedRef.current && operations['OP-CARTESIAN'].operationId) {
+    if (score && competitionMode && !submittedRef.current && ctOperationId) {
       submittedRef.current = true;
       submitScore({
         opCode: 'OP-CARTESIAN',
         totalScore: score.totalScore,
         efficiencyScore: score.callEfficiency,
-        anomalySignals: 0,
+        anomalySignals: score.breakdown.failedGuesses,
         timeToSolve: Math.round(score.timeToSolve),
-        hardeningLevel: operations['OP-CARTESIAN'].hardeningLevel,
-        operationId: operations['OP-CARTESIAN'].operationId!,
+        hardeningLevel: ctHardeningLevel,
+        operationId: ctOperationId,
       });
     }
-  }, [score, competitionMode, submitScore, operations]);
+  }, [score, competitionMode, submitScore, ctOperationId, ctHardeningLevel]);
 
   const handleReplay = () => {
     resetCartesian();

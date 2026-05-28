@@ -14,8 +14,9 @@ import {
   RefreshCw,
   Shield,
   Swords,
-  RotateCcw,
+  ShieldCheck,
 } from 'lucide-react';
+import { AdminPanel } from './admin-panel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -39,7 +40,7 @@ export function CompetitionView() {
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isFetching = useRef(false);
 
-  const [resetConfirm, setResetConfirm] = React.useState(false);
+  const [adminOpen, setAdminOpen] = React.useState(false);
 
   const fetchLeaderboard = useCallback(async () => {
     if (isFetching.current) return;
@@ -86,18 +87,6 @@ export function CompetitionView() {
     }
   }, [competitionMode, fetchLeaderboard, sendHeartbeat]);
 
-  const handleReset = async () => {
-    try {
-      const res = await fetch('/api/competition/reset', { method: 'POST' });
-      if (res.ok) {
-        setLeaderboard({ leaderboard: [], recentScores: [], stats: { activePlayers: 0, totalPlayers: 0, totalScoresSubmitted: 0, totalOperationsSolved: 0 } });
-        setResetConfirm(false);
-      }
-    } catch {
-      // Silently fail
-    }
-  };
-
   // Manual refresh
   const handleRefresh = () => {
     fetchLeaderboard();
@@ -143,49 +132,27 @@ export function CompetitionView() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {resetConfirm ? (
-              <div className="flex items-center gap-2 p-1.5 rounded-lg bg-red-500/10 border border-red-500/30">
-                <span className="text-[10px] text-red-400 font-semibold ml-1">Reset all scores?</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleReset}
-                  className="h-6 text-[10px] text-red-400 hover:text-red-300 hover:bg-red-500/20 px-2"
-                >
-                  Confirm
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setResetConfirm(false)}
-                  className="h-6 text-[10px] text-muted-foreground hover:text-foreground px-2"
-                >
-                  Cancel
-                </Button>
-              </div>
-            ) : (
-              <>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setResetConfirm(true)}
-                  className="gap-1.5 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                  title="Reset competition leaderboard (admin)"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  Reset
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRefresh}
-                  className="gap-1.5 text-xs"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  Refresh
-                </Button>
-              </>
-            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setAdminOpen(true)}
+              className="gap-1.5 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10"
+              title="CTF Organizer Panel (admin)"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              Admin
+            </Button>
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRefresh}
+                className="gap-1.5 text-xs"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Refresh
+              </Button>
+            </>
             <Button
               variant="ghost"
               size="sm"
@@ -243,6 +210,7 @@ export function CompetitionView() {
           <ActivityFeed entries={recentScores} />
         </div>
       </div>
+      {adminOpen && <AdminPanel onClose={() => setAdminOpen(false)} />}
     </div>
   );
 }

@@ -7,6 +7,7 @@
 //   - Vercel KV (Redis) for multi-instance production deployments
 //   - Auto-fallback: tries KV, falls back to in-memory if KV is not configured
 
+import { NextRequest } from 'next/server';
 import type { OpCode } from '@/store/session-store';
 
 // ─── Types ───────────────────────────────────────────────
@@ -112,11 +113,40 @@ async function kvGetList<T>(key: string): Promise<T[]> {
 
 // ─── Public API ──────────────────────────────────────────
 
+const VALID_OP_CODES = new Set(['OP-ORACLE', 'OP-SCHEMAPOISON', 'OP-EIGENBLIND', 'OP-OUROBOROS', 'OP-LONGCON', 'OP-CARTESIAN']);
+
+/**
+ * Check if a score for this (callsign, operationId) already exists (dedup).
+ */
+export function isDuplicateSubmission(callsign: string, operationId: string): boolean {
+  return store.scores.some(s => s.callsign === callsign && s.operationId === operationId);
+}
+
+/**
+ * Validate that an opCode is a known, real operation.
+ */
+export function isValidOpCode(opCode: string): boolean {
+  return VALID_OP_CODES.has(opCode);
+}
+
+/**
+ * Validate that an operationId looks legitimate.
+ */
+export function isValidOperationId(id: string): boolean {
+  return /^op_[a-z0-9]+_[a-z0-9-]+$/.test(id);
+}
+
 /**
  * Submit a score entry from a player who solved an operation.
  * Updates both the scores list and the player's aggregated stats.
+ * Server-side deduplication: prevents the same (callsign, operationId) from being counted twice.
  */
-export async function submitScore(entry: CompetitionScoreEntry): Promise<void> {
+export async function submitScore(entry: CompetitionScoreEntry): Promise<{ duplicate: boolean }> {
+  // Server-side dedup check
+  if (isDuplicateSubmission(entry.callsign, entry.operationId)) {
+    return { duplicate: true };
+  }
+
   // Add to scores list
   store.scores.push(entry);
 
@@ -151,6 +181,8 @@ export async function submitScore(entry: CompetitionScoreEntry): Promise<void> {
     players[entry.callsign] = store.players.get(entry.callsign)!;
     await kvSet(KV_PLAYERS_KEY, players);
   }
+
+  return { duplicate: false };
 }
 
 /**
@@ -280,9 +312,68 @@ export function getCompetitionStats(): {
 
 /**
  * Reset the competition (admin use).
+ * Clears both in-memory state AND Vercel KV (if configured).
  */
-export function resetCompetition(): void {
+export async function resetCompetition(): Promise<void> {
   store.scores = [];
   store.players.clear();
   store.activeSessions.clear();
+
+  // Also clear KV if configured
+  if (hasKvConfigured()) {
+    try {
+      const { kv } = await import('@vercel/kv');
+      await kv.del(KV_SCORES_KEY);
+      await kv.del(KV_PLAYERS_KEY);
+      await kv.del(KV_ACTIVE_KEY);
+    } catch {
+      // KV clear best-effort
+    }
+  }
+}
+
+// ─── Admin API ─────────────────────────────────────────────
+
+/**
+ * Get full competition data for admin overview.
+ * Returns all players, scores, active sessions, and stats.
+ */
+export function getAdminOverview() {
+  const activeSessions = Array.from(store.activeSessions.entries())
+    .filter(([_, s]) => Date.now() - s.lastHeartbeat < 5 * 60 * 1000)
+    .map(([sessionId, s]) => ({
+      sessionId,
+      callsign: s.callsign,
+      lastHeartbeat: new Date(s.lastHeartbeat).toISOString(),
+      secondsSinceHeartbeat: Math.round((Date.now() - s.lastHeartbeat) / 1000),
+    }));
+
+  const allScores = [...store.scores].sort(
+    (a, b) => new Date(b.solvedAt).getTime() - new Date(a.solvedAt).getTime()
+  );
+
+  const allPlayers = Array.from(store.players.values()).sort(
+    (a, b) => b.totalScore - a.totalScore
+  );
+
+  return {
+    players: allPlayers,
+    scores: allScores,
+    activeSessions,
+    stats: getCompetitionStats(),
+    leaderboard: [], // caller can call getLeaderboard() separately
+  };
+}
+
+/**
+ * Verify admin authentication.
+ */
+export function verifyAdminAuth(request: NextRequest): boolean {
+  const adminSecret = process.env.ADMIN_SECRET;
+  // If no ADMIN_SECRET is configured, admin operations are disabled in production
+  if (!adminSecret) {
+    return process.env.NODE_ENV !== 'production';
+  }
+  const authHeader = request.headers.get('x-admin-key');
+  return authHeader === adminSecret;
 }

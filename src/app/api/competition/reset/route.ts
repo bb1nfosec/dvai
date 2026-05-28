@@ -1,17 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { resetCompetition } from '@/lib/competition-store';
+import { resetCompetition, verifyAdminAuth } from '@/lib/competition-store';
 import { validateOrigin } from '@/lib/anti-cheat';
 
 // ─── POST: Reset the entire competition ────────────────────────
-// Admin operation — clears all scores, players, and active sessions.
-// Useful for restarting a BSides village event between sessions.
+// Admin operation — requires x-admin-key header matching ADMIN_SECRET env var.
+// Clears all scores, players, and active sessions (both in-memory and KV).
 export async function POST(request: NextRequest) {
   try {
     if (!validateOrigin(request)) {
       return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 });
     }
 
-    resetCompetition();
+    // Require admin authentication
+    if (!verifyAdminAuth(request)) {
+      return NextResponse.json(
+        { error: 'Authentication required. Provide a valid x-admin-key header.' },
+        { status: 401 },
+      );
+    }
+
+    await resetCompetition();
 
     return NextResponse.json({
       success: true,

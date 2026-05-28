@@ -18,7 +18,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 
 export function ResultsPanel() {
   const { ouroboros, operations, resetOuroboros, setActiveTab, competitionMode } = useSessionStore();
@@ -26,21 +25,25 @@ export function ResultsPanel() {
   const score = ouroboros.score;
   const submittedRef = React.useRef(false);
 
+  // Extract individual primitives to avoid effect re-running on every store change
+  const obOperationId = operations['OP-OUROBOROS']?.operationId;
+  const obHardeningLevel = operations['OP-OUROBOROS']?.hardeningLevel;
+
   // Auto-submit score to competition leaderboard when in competition mode
   React.useEffect(() => {
-    if (score && competitionMode && !submittedRef.current && operations['OP-OUROBOROS'].operationId) {
+    if (score && competitionMode && !submittedRef.current && obOperationId) {
       submittedRef.current = true;
       submitScore({
         opCode: 'OP-OUROBOROS',
         totalScore: score.totalScore,
         efficiencyScore: Math.round(score.efficiency),
-        anomalySignals: 0,
+        anomalySignals: score.pipelineRunsUsed,
         timeToSolve: score.breakdown.timeToSolve,
-        hardeningLevel: operations['OP-OUROBOROS'].hardeningLevel,
-        operationId: operations['OP-OUROBOROS'].operationId!,
+        hardeningLevel: obHardeningLevel,
+        operationId: obOperationId,
       });
     }
-  }, [score, competitionMode, submitScore, operations]);
+  }, [score, competitionMode, submitScore, obOperationId, obHardeningLevel]);
 
   if (!score) {
     return (

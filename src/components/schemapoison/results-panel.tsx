@@ -10,14 +10,12 @@ import {
   Radio,
   Database,
   ArrowRight,
-  RotateCcw,
   FileText,
   Award,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 
 export function ResultsPanel() {
   const { schemaPoison, operations, resetSchemaPoison, setActiveTab, competitionMode } = useSessionStore();
@@ -25,21 +23,25 @@ export function ResultsPanel() {
   const score = schemaPoison.score;
   const submittedRef = React.useRef(false);
 
+  // Extract individual primitives to avoid effect re-running on every store change
+  const spOperationId = operations['OP-SCHEMAPOISON']?.operationId;
+  const spHardeningLevel = operations['OP-SCHEMAPOISON']?.hardeningLevel;
+
   // Auto-submit score to competition leaderboard when in competition mode
   React.useEffect(() => {
-    if (score && competitionMode && !submittedRef.current && operations['OP-SCHEMAPOISON'].operationId) {
+    if (score && competitionMode && !submittedRef.current && spOperationId) {
       submittedRef.current = true;
       submitScore({
         opCode: 'OP-SCHEMAPOISON',
         totalScore: score.totalScore,
         efficiencyScore: Math.round((1 - score.breakdown.queriesUsed / score.breakdown.queryBudget) * 100),
-        anomalySignals: 0,
-        timeToSolve: 0,
-        hardeningLevel: operations['OP-SCHEMAPOISON'].hardeningLevel,
-        operationId: operations['OP-SCHEMAPOISON'].operationId!,
+        anomalySignals: score.breakdown.poisonedRetrievals ?? 0,
+        timeToSolve: score.breakdown.queriesUsed * 5, // rough estimate: ~5s per query
+        hardeningLevel: spHardeningLevel,
+        operationId: spOperationId,
       });
     }
-  }, [score, competitionMode, submitScore, operations]);
+  }, [score, competitionMode, submitScore, spOperationId, spHardeningLevel]);
 
   if (!score) {
     return (

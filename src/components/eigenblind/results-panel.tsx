@@ -10,7 +10,6 @@ import {
   Radio,
   Target,
   ArrowRight,
-  RotateCcw,
   FileText,
   Award,
   Ruler,
@@ -18,7 +17,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 
 export function ResultsPanel() {
   const { eigenblind, operations, resetEigenblind, setActiveTab, competitionMode } = useSessionStore();
@@ -26,21 +24,25 @@ export function ResultsPanel() {
   const score = eigenblind.score;
   const submittedRef = React.useRef(false);
 
+  // Extract individual primitives to avoid effect re-running on every store change
+  const ebOperationId = operations['OP-EIGENBLIND']?.operationId;
+  const ebHardeningLevel = operations['OP-EIGENBLIND']?.hardeningLevel;
+
   // Auto-submit score to competition leaderboard when in competition mode
   React.useEffect(() => {
-    if (score && competitionMode && !submittedRef.current && operations['OP-EIGENBLIND'].operationId) {
+    if (score && competitionMode && !submittedRef.current && ebOperationId) {
       submittedRef.current = true;
       submitScore({
         opCode: 'OP-EIGENBLIND',
         totalScore: score.totalScore,
         efficiencyScore: score.breakdown.apiCallEfficiency,
-        anomalySignals: 0,
-        timeToSolve: 0,
-        hardeningLevel: operations['OP-EIGENBLIND'].hardeningLevel,
-        operationId: operations['OP-EIGENBLIND'].operationId!,
+        anomalySignals: score.apiCallsUsed,
+        timeToSolve: score.apiCallsUsed * 3, // rough estimate: ~3s per API call
+        hardeningLevel: ebHardeningLevel,
+        operationId: ebOperationId,
       });
     }
-  }, [score, competitionMode, submitScore, operations]);
+  }, [score, competitionMode, submitScore, ebOperationId, ebHardeningLevel]);
 
   if (!score) {
     return (

@@ -12,7 +12,6 @@ import {
   ArrowRight,
   FileText,
   Skull,
-  Brain,
   Clock,
   Target,
   Eye,
@@ -20,12 +19,13 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 
 export function ResultsPanel() {
   const { operations, updateOperation, setActiveTab, competitionMode } = useSessionStore();
   const { submitScore } = useCompetitionSubmit();
-  const op = operations['OP-LONGCON'];
+  // Extract individual primitives to avoid effect re-running on every store change
+  const lcOperationId = operations['OP-LONGCON']?.operationId;
+  const lcHardeningLevel = operations['OP-LONGCON']?.hardeningLevel;
   const submittedRef = React.useRef(false);
   const [score, setScore] = React.useState<{
     totalScore: number;
@@ -63,16 +63,16 @@ export function ResultsPanel() {
           setScore(data);
 
           // Auto-submit to competition if in competition mode
-          if (competitionMode && !submittedRef.current && op.operationId && data.success) {
+          if (competitionMode && !submittedRef.current && lcOperationId && data.success) {
             submittedRef.current = true;
             submitScore({
               opCode: 'OP-LONGCON',
               totalScore: data.totalScore,
               efficiencyScore: data.efficiencyScore,
-              anomalySignals: 0,
-              timeToSolve: 0,
-              hardeningLevel: op.hardeningLevel,
-              operationId: op.operationId,
+              anomalySignals: data.breakdown?.directAskPenalty ? 1 : 0,
+              timeToSolve: data.breakdown?.turnsUsed ? data.breakdown.turnsUsed * 30 : 0,
+              hardeningLevel: lcHardeningLevel,
+              operationId: lcOperationId,
             });
           }
         }
@@ -83,7 +83,7 @@ export function ResultsPanel() {
       }
     }
     loadScore();
-  }, [competitionMode, submitScore, op.operationId, op.hardeningLevel]);
+  }, [competitionMode, submitScore, lcOperationId, lcHardeningLevel]);
 
   const handleReplay = () => {
     updateOperation('OP-LONGCON', {
