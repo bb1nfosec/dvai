@@ -13,6 +13,7 @@ import { EigenblindView } from '@/components/eigenblind/eigenblind-view';
 import { LongconView } from '@/components/longcon/longcon-view';
 import { CartesianView } from '@/components/cartesian/cartesian-view';
 import { TTPRegistry } from '@/components/ttps/ttp-registry';
+import { CompetitionView } from '@/components/competition/leaderboard-panel';
 import { Shield, Lock, Database, Crosshair, RefreshCw, MessageSquare, ShieldAlert } from 'lucide-react';
 
 function LockedOpView({ name, codename }: { name: string; codename: string }) {
@@ -104,6 +105,8 @@ export default function Home() {
         return <LongconView />;
       case 'cartesian':
         return <CartesianView />;
+      case 'competition':
+        return <CompetitionView />;
       default:
         return <DashboardView />;
     }

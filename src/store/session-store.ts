@@ -5,7 +5,7 @@ import { persist } from 'zustand/middleware';
 
 export type OpStatus = 'available' | 'active' | 'solved' | 'locked';
 export type OpCode = 'OP-ORACLE' | 'OP-SCHEMAPOISON' | 'OP-EIGENBLIND' | 'OP-OUROBOROS' | 'OP-LONGCON' | 'OP-CARTESIAN';
-export type ViewTab = 'dashboard' | 'oracle' | 'schemapoison' | 'eigenblind' | 'ouroboros' | 'longcon' | 'cartesian' | 'ttps';
+export type ViewTab = 'dashboard' | 'oracle' | 'schemapoison' | 'eigenblind' | 'ouroboros' | 'longcon' | 'cartesian' | 'ttps' | 'competition';
 
 export interface GroqLogprobToken {
   token: string;
@@ -201,6 +201,34 @@ export interface SchemaPoisonState {
   } | null;
 }
 
+// ─── Competition Types ────────────────────────────────────
+
+export interface LeaderboardEntry {
+  rank: number;
+  callsign: string;
+  totalScore: number;
+  operationsSolved: number;
+  avgEfficiency: number;
+  bestOperation: string;
+  lastActive: string;
+}
+
+export interface CompetitionFeedEntry {
+  callsign: string;
+  opCode: OpCode;
+  totalScore: number;
+  timeToSolve: number;
+  hardeningLevel: number;
+  solvedAt: string;
+}
+
+export interface CompetitionStats {
+  totalPlayers: number;
+  activePlayers: number;
+  totalScoresSubmitted: number;
+  totalOperationsSolved: number;
+}
+
 // ─── Store ───────────────────────────────────────────────
 
 interface SessionStore {
@@ -232,10 +260,20 @@ interface SessionStore {
   // OP-CARTESIAN specific
   cartesian: CartesianState;
 
+  // Competition state
+  competitionMode: boolean;
+  leaderboard: LeaderboardEntry[];
+  recentScores: CompetitionFeedEntry[];
+  competitionStats: CompetitionStats | null;
+  lastLeaderboardFetch: number;
+
   // Mutations (accumulated across operations)
   mutations: MutationEntry[];
 
   // Actions
+  setCompetitionMode: (mode: boolean) => void;
+  setLeaderboard: (data: { leaderboard: LeaderboardEntry[]; recentScores: CompetitionFeedEntry[]; stats: CompetitionStats }) => void;
+  setLastLeaderboardFetch: (time: number) => void;
   setSession: (sessionId: string, callsign: string) => void;
   setGroqApiKey: (key: string | null) => void;
   setGroqKeyValid: (valid: boolean) => void;
@@ -370,7 +408,21 @@ export const useSessionStore = create<SessionStore>()(
       eigenblind: defaultEigenblind,
       ouroboros: defaultOuroboros,
       cartesian: defaultCartesian,
+      competitionMode: false,
+      leaderboard: [],
+      recentScores: [],
+      competitionStats: null,
+      lastLeaderboardFetch: 0,
       mutations: [],
+
+      setCompetitionMode: (mode) => set({ competitionMode: mode }),
+      setLeaderboard: (data) => set({
+        leaderboard: data.leaderboard,
+        recentScores: data.recentScores,
+        competitionStats: data.stats,
+        lastLeaderboardFetch: Date.now(),
+      }),
+      setLastLeaderboardFetch: (time) => set({ lastLeaderboardFetch: time }),
 
       setSession: (sessionId, callsign) => set({ sessionId, callsign }),
       setGroqApiKey: (key) => set({ groqApiKey: key }),
@@ -731,6 +783,11 @@ export const useSessionStore = create<SessionStore>()(
           apiCallBudget: state.cartesian.apiCallBudget,
           score: state.cartesian.score,
         },
+        competitionMode: state.competitionMode,
+        leaderboard: state.leaderboard,
+        recentScores: state.recentScores,
+        competitionStats: state.competitionStats,
+        lastLeaderboardFetch: state.lastLeaderboardFetch,
         mutations: state.mutations,
       }),
     }

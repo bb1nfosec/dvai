@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useSessionStore } from '@/store/session-store';
+import { useCompetitionSubmit } from '@/lib/use-competition-submit';
 import {
   CheckCircle2,
   Zap,
@@ -20,8 +21,26 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 
 export function ResultsPanel() {
-  const { eigenblind, operations, resetEigenblind, setActiveTab } = useSessionStore();
+  const { eigenblind, operations, resetEigenblind, setActiveTab, competitionMode } = useSessionStore();
+  const { submitScore } = useCompetitionSubmit();
   const score = eigenblind.score;
+  const submittedRef = React.useRef(false);
+
+  // Auto-submit score to competition leaderboard when in competition mode
+  React.useEffect(() => {
+    if (score && competitionMode && !submittedRef.current && operations['OP-EIGENBLIND'].operationId) {
+      submittedRef.current = true;
+      submitScore({
+        opCode: 'OP-EIGENBLIND',
+        totalScore: score.totalScore,
+        efficiencyScore: score.breakdown.apiCallEfficiency,
+        anomalySignals: 0,
+        timeToSolve: 0,
+        hardeningLevel: operations['OP-EIGENBLIND'].hardeningLevel,
+        operationId: operations['OP-EIGENBLIND'].operationId!,
+      });
+    }
+  }, [score, competitionMode, submitScore, operations]);
 
   if (!score) {
     return (

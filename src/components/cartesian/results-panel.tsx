@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useSessionStore } from '@/store/session-store';
+import { useCompetitionSubmit } from '@/lib/use-competition-submit';
 import {
   CheckCircle2,
   Zap,
@@ -36,8 +37,26 @@ const LAYER_STYLES: Record<number, { color: string; border: string }> = {
 };
 
 export function ResultsPanel() {
-  const { cartesian, operations, updateOperation, resetCartesian, setActiveTab } = useSessionStore();
+  const { cartesian, operations, updateOperation, resetCartesian, setActiveTab, competitionMode } = useSessionStore();
+  const { submitScore } = useCompetitionSubmit();
   const score = cartesian.score;
+  const submittedRef = React.useRef(false);
+
+  // Auto-submit score to competition leaderboard when in competition mode
+  React.useEffect(() => {
+    if (score && competitionMode && !submittedRef.current && operations['OP-CARTESIAN'].operationId) {
+      submittedRef.current = true;
+      submitScore({
+        opCode: 'OP-CARTESIAN',
+        totalScore: score.totalScore,
+        efficiencyScore: score.callEfficiency,
+        anomalySignals: 0,
+        timeToSolve: Math.round(score.timeToSolve),
+        hardeningLevel: operations['OP-CARTESIAN'].hardeningLevel,
+        operationId: operations['OP-CARTESIAN'].operationId!,
+      });
+    }
+  }, [score, competitionMode, submitScore, operations]);
 
   const handleReplay = () => {
     resetCartesian();

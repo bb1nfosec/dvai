@@ -10,10 +10,12 @@ import {
   TrendingUp,
   Radio,
   BarChart3,
+  Users,
+  Swords,
 } from 'lucide-react';
 
 export function MetricsPanel() {
-  const { operations, oracle } = useSessionStore();
+  const { operations, oracle, competitionMode, competitionStats } = useSessionStore();
 
   const oracleOp = operations['OP-ORACLE'];
   const totalSolved = Object.values(operations).filter(op => op?.status === 'solved').length;
@@ -56,11 +58,13 @@ export function MetricsPanel() {
       bgColor: 'bg-red-500/10',
     },
     {
-      label: 'Anomaly Signals',
-      value: oracle.score?.anomalySignals?.toString() ?? '0',
-      icon: Radio,
-      color: 'text-rose-400',
-      bgColor: 'bg-rose-500/10',
+      label: competitionMode ? 'Active Players' : 'Anomaly Signals',
+      value: competitionMode
+        ? (competitionStats?.activePlayers ?? 0).toString()
+        : (oracle.score?.anomalySignals?.toString() ?? '0'),
+      icon: competitionMode ? Users : Radio,
+      color: competitionMode ? 'text-amber-400' : 'text-rose-400',
+      bgColor: competitionMode ? 'bg-amber-500/10' : 'bg-rose-500/10',
     },
   ];
 

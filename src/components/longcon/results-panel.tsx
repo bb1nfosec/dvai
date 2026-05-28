@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useSessionStore } from '@/store/session-store';
+import { useCompetitionSubmit } from '@/lib/use-competition-submit';
 import {
   CheckCircle2,
   Zap,
@@ -22,8 +23,10 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 
 export function ResultsPanel() {
-  const { operations, updateOperation, setActiveTab } = useSessionStore();
+  const { operations, updateOperation, setActiveTab, competitionMode } = useSessionStore();
+  const { submitScore } = useCompetitionSubmit();
   const op = operations['OP-LONGCON'];
+  const submittedRef = React.useRef(false);
   const [score, setScore] = React.useState<{
     totalScore: number;
     turnsUsed: number;
@@ -58,6 +61,20 @@ export function ResultsPanel() {
         if (res.ok) {
           const data = await res.json();
           setScore(data);
+
+          // Auto-submit to competition if in competition mode
+          if (competitionMode && !submittedRef.current && op.operationId && data.success) {
+            submittedRef.current = true;
+            submitScore({
+              opCode: 'OP-LONGCON',
+              totalScore: data.totalScore,
+              efficiencyScore: data.efficiencyScore,
+              anomalySignals: 0,
+              timeToSolve: 0,
+              hardeningLevel: op.hardeningLevel,
+              operationId: op.operationId,
+            });
+          }
         }
       } catch {
         // Handle error
@@ -66,7 +83,7 @@ export function ResultsPanel() {
       }
     }
     loadScore();
-  }, []);
+  }, [competitionMode, submitScore, op.operationId, op.hardeningLevel]);
 
   const handleReplay = () => {
     updateOperation('OP-LONGCON', {

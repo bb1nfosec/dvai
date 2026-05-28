@@ -14,6 +14,7 @@ import {
   Terminal,
   ChevronLeft,
   ChevronRight,
+  Swords,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -30,6 +31,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { tab: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { tab: 'competition', label: 'Competition', icon: Swords },
   { tab: 'oracle', label: 'OP-ORACLE', icon: Eye, opCode: 'OP-ORACLE' },
   { tab: 'schemapoison', label: 'OP-SCHEMAPOISON', icon: Database, opCode: 'OP-SCHEMAPOISON', locked: true },
   { tab: 'eigenblind', label: 'OP-EIGENBLIND', icon: Crosshair, opCode: 'OP-EIGENBLIND', locked: true },
@@ -40,7 +42,7 @@ const navItems: NavItem[] = [
 ];
 
 export function Sidebar() {
-  const { activeTab, setActiveTab, operations, callsign, groqKeyValid } = useSessionStore();
+  const { activeTab, setActiveTab, operations, callsign, groqKeyValid, competitionMode } = useSessionStore();
   const [collapsed, setCollapsed] = React.useState(false);
 
   const getOpStatus = (opCode?: string) => {
@@ -81,12 +83,13 @@ export function Sidebar() {
             const isActive = activeTab === item.tab;
             const isLocked = item.locked || status === 'locked';
             const isSolved = status === 'solved';
+            const isCompetition = item.tab === 'competition';
 
             const button = (
               <button
                 key={item.tab}
                 onClick={() => {
-                  if (!isLocked) setActiveTab(item.tab);
+                  if (!isLocked || isCompetition) setActiveTab(item.tab);
                 }}
                 className={cn(
                   'w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-all duration-150',
@@ -107,6 +110,9 @@ export function Sidebar() {
                   <>
                     <span className="truncate">{item.label}</span>
                     <div className="ml-auto flex items-center gap-1.5">
+                      {isCompetition && competitionMode && (
+                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                      )}
                       {status === 'available' && !item.locked && (
                         <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
                       )}

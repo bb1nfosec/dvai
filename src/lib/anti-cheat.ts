@@ -59,6 +59,8 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   'init': { maxRequests: 10, windowMs: 60 * 1000 },
   // Session creation
   'session': { maxRequests: 5, windowMs: 60 * 1000 },
+  // Competition submissions — more generous for village events
+  'competition-submit': { maxRequests: 20, windowMs: 60 * 1000 },
 };
 
 export function checkRateLimit(

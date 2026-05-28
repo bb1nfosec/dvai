@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useSessionStore } from '@/store/session-store';
+import { useCompetitionSubmit } from '@/lib/use-competition-submit';
 import {
   CheckCircle2,
   Zap,
@@ -20,8 +21,26 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 
 export function ResultsPanel() {
-  const { ouroboros, resetOuroboros, setActiveTab } = useSessionStore();
+  const { ouroboros, operations, resetOuroboros, setActiveTab, competitionMode } = useSessionStore();
+  const { submitScore } = useCompetitionSubmit();
   const score = ouroboros.score;
+  const submittedRef = React.useRef(false);
+
+  // Auto-submit score to competition leaderboard when in competition mode
+  React.useEffect(() => {
+    if (score && competitionMode && !submittedRef.current && operations['OP-OUROBOROS'].operationId) {
+      submittedRef.current = true;
+      submitScore({
+        opCode: 'OP-OUROBOROS',
+        totalScore: score.totalScore,
+        efficiencyScore: Math.round(score.efficiency),
+        anomalySignals: 0,
+        timeToSolve: score.breakdown.timeToSolve,
+        hardeningLevel: operations['OP-OUROBOROS'].hardeningLevel,
+        operationId: operations['OP-OUROBOROS'].operationId!,
+      });
+    }
+  }, [score, competitionMode, submitScore, operations]);
 
   if (!score) {
     return (

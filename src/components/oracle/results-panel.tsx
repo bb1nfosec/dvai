@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useSessionStore } from '@/store/session-store';
+import { useCompetitionSubmit } from '@/lib/use-competition-submit';
 import {
   CheckCircle2,
   Zap,
@@ -20,8 +21,27 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 
 export function ResultsPanel() {
-  const { oracle, operations, resetOracle, updateOperation, setActiveTab } = useSessionStore();
+  const { oracle, operations, resetOracle, updateOperation, setActiveTab, competitionMode } = useSessionStore();
+  const { submitScore } = useCompetitionSubmit();
   const score = oracle.score;
+  const submittedRef = React.useRef(false);
+
+  // Auto-submit score to competition leaderboard when in competition mode
+  React.useEffect(() => {
+    if (score && competitionMode && !submittedRef.current && operations['OP-ORACLE'].operationId) {
+      submittedRef.current = true;
+      const breakdown = score.breakdown;
+      submitScore({
+        opCode: 'OP-ORACLE',
+        totalScore: score.totalScore,
+        efficiencyScore: score.efficiencyScore,
+        anomalySignals: score.anomalySignals,
+        timeToSolve: breakdown.timeToSolve,
+        hardeningLevel: breakdown.hardeningLevel,
+        operationId: operations['OP-ORACLE'].operationId!,
+      });
+    }
+  }, [score, competitionMode, submitScore, operations]);
 
   if (!score) {
     return (

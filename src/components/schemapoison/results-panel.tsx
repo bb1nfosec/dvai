@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useSessionStore } from '@/store/session-store';
+import { useCompetitionSubmit } from '@/lib/use-competition-submit';
 import {
   CheckCircle2,
   Zap,
@@ -19,8 +20,26 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 
 export function ResultsPanel() {
-  const { schemaPoison, operations, resetSchemaPoison, setActiveTab } = useSessionStore();
+  const { schemaPoison, operations, resetSchemaPoison, setActiveTab, competitionMode } = useSessionStore();
+  const { submitScore } = useCompetitionSubmit();
   const score = schemaPoison.score;
+  const submittedRef = React.useRef(false);
+
+  // Auto-submit score to competition leaderboard when in competition mode
+  React.useEffect(() => {
+    if (score && competitionMode && !submittedRef.current && operations['OP-SCHEMAPOISON'].operationId) {
+      submittedRef.current = true;
+      submitScore({
+        opCode: 'OP-SCHEMAPOISON',
+        totalScore: score.totalScore,
+        efficiencyScore: Math.round((1 - score.breakdown.queriesUsed / score.breakdown.queryBudget) * 100),
+        anomalySignals: 0,
+        timeToSolve: 0,
+        hardeningLevel: operations['OP-SCHEMAPOISON'].hardeningLevel,
+        operationId: operations['OP-SCHEMAPOISON'].operationId!,
+      });
+    }
+  }, [score, competitionMode, submitScore, operations]);
 
   if (!score) {
     return (

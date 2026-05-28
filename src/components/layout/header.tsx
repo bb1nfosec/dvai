@@ -6,6 +6,7 @@ import {
   Shield,
   Key,
   Settings,
+  Swords,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -21,7 +22,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 export function Header() {
-  const { callsign, groqKeyValid, sessionId, isInitialized } = useSessionStore();
+  const { callsign, groqKeyValid, sessionId, isInitialized, competitionMode } = useSessionStore();
 
   if (!isInitialized) {
     return <SessionSetupDialog />;
@@ -40,6 +41,15 @@ export function Header() {
         <Badge variant="outline" className="font-mono text-xs border-green-500/30 text-green-400">
           {callsign}
         </Badge>
+        {competitionMode && (
+          <>
+            <div className="h-4 w-px bg-border" />
+            <Badge variant="outline" className="font-mono text-[10px] border-amber-500/30 text-amber-400 flex items-center gap-1">
+              <Swords className="w-3 h-3" />
+              COMPETITION
+            </Badge>
+          </>
+        )}
       </div>
 
       <div className="flex items-center gap-3">
